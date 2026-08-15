@@ -182,30 +182,30 @@ class ContextBadge:
         self.edit_window.title("Edit Context Badge")
         self.edit_window.overrideredirect(True)
         self.edit_window.attributes("-topmost", True)
-        self.edit_window.configure(bg="#20232a")
+        self.edit_window.configure(bg="#242832")
         self.edit_canvas = tk.Canvas(
             self.edit_window,
             width=self.EDIT_WIDTH,
             height=self.HEIGHT,
-            bg="#15171c",
+            bg="#242832",
             highlightthickness=0,
             cursor="hand2",
         )
         self.edit_canvas.pack()
-        self.edit_canvas.create_line(0, 12, 0, self.HEIGHT - 12, fill="#343842")
+        self.edit_canvas.create_line(0, 10, 0, self.HEIGHT - 10, fill="#4a5160")
         self.edit_icon = self.edit_canvas.create_text(
             self.EDIT_WIDTH // 2,
             self.HEIGHT // 2,
             text="✎",
-            fill="#c5cbd6",
+            fill="#f0f3f8",
             font=("Segoe UI Symbol", 13),
         )
         self.edit_canvas.bind("<Button-1>", lambda _event: self._toggle_edit_control())
         self.edit_canvas.bind(
-            "<Enter>", lambda _event: self.edit_canvas.configure(bg="#20232a")
+            "<Enter>", lambda _event: self.edit_canvas.configure(bg="#303642")
         )
         self.edit_canvas.bind(
-            "<Leave>", lambda _event: self.edit_canvas.configure(bg="#15171c")
+            "<Leave>", lambda _event: self.edit_canvas.configure(bg="#242832")
         )
 
         # This popover is intentionally action-based so future edit operations
@@ -302,6 +302,10 @@ class ContextBadge:
             0,
             SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
         )
+        # Changing the body's extended style also changes its Z-order. Put the
+        # embedded edit hit target back above the body immediately.
+        if hasattr(self, "edit_hwnd"):
+            self._raise_edit_control()
 
     def _make_edit_button_interactive(self) -> None:
         style = user32.GetWindowLongW(self.edit_hwnd, GWL_EXSTYLE)
@@ -317,6 +321,27 @@ class ContextBadge:
             0,
             SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
         )
+
+    def _raise_edit_control(self) -> None:
+        user32.SetWindowPos(
+            self.edit_hwnd,
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+        )
+        if getattr(self, "menu_open", False):
+            user32.SetWindowPos(
+                self.menu_hwnd,
+                HWND_TOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            )
 
     def _make_menu_interactive(self) -> None:
         style = user32.GetWindowLongW(self.menu_hwnd, GWL_EXSTYLE)
@@ -339,6 +364,7 @@ class ContextBadge:
         else:
             self.menu_window.withdraw()
         self._update_edit_icon()
+        self._raise_edit_control()
 
     def _begin_move(self) -> None:
         self._set_menu_open(False)
@@ -360,8 +386,9 @@ class ContextBadge:
         icon = "✓" if self.move_mode else ("×" if self.menu_open else "✎")
         active = self.move_mode or self.menu_open
         self.edit_canvas.itemconfigure(
-            self.edit_icon, text=icon, fill="#8fc0ff" if active else "#c5cbd6"
+            self.edit_icon, text=icon, fill="#8fc0ff" if active else "#f0f3f8"
         )
+        self._raise_edit_control()
 
     def _update_app_label(self) -> None:
         prefix = "MOVE MODE · " if self.move_mode else ""
