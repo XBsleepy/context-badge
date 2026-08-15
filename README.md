@@ -33,7 +33,7 @@ Linux.
 Clone the repository and run:
 
 ```powershell
-git clone <repository-url>
+git clone https://github.com/XBsleepy/context-badge.git
 cd context-badge
 .\run.ps1
 ```
@@ -117,7 +117,7 @@ Run checks with:
 
 ```powershell
 python -m unittest discover -s tests -v
-python -m py_compile app.py context_badge\*.py
+python -m compileall -q app.py context_badge
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.

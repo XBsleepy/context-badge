@@ -17,7 +17,7 @@ Run the test suite before submitting a pull request:
 
 ```powershell
 python -m unittest discover -s tests -v
-python -m py_compile app.py context_badge\*.py
+python -m compileall -q app.py context_badge
 ```
 
 ## Pull requests
