@@ -42,9 +42,6 @@ SWP_FRAMECHANGED = 0x0020
 SWP_SHOWWINDOW = 0x0040
 SW_SHOWNOACTIVATE = 4
 MONITOR_DEFAULTTONEAREST = 0x00000002
-VK_CONTROL = 0x11
-VK_MENU = 0x12
-VK_M = 0x4D
 
 CONFIG_PATH = Path(__file__).with_name(".context-badge.json")
 
@@ -175,6 +172,38 @@ class ContextBadge:
             text="Starting…",
         )
 
+        # The edit control is a separate native window. This lets the badge
+        # remain click-through while the small pencil button stays clickable.
+        self.edit_window = tk.Toplevel(self.root)
+        self.edit_window.title("Move Context Badge")
+        self.edit_window.overrideredirect(True)
+        self.edit_window.attributes("-topmost", True)
+        self.edit_window.configure(bg="#20232a")
+        self.edit_canvas = tk.Canvas(
+            self.edit_window,
+            width=28,
+            height=28,
+            bg="#20232a",
+            highlightthickness=1,
+            highlightbackground="#3b404b",
+            cursor="hand2",
+        )
+        self.edit_canvas.pack()
+        self.edit_icon = self.edit_canvas.create_text(
+            14,
+            14,
+            text="✎",
+            fill="#c5cbd6",
+            font=("Segoe UI Symbol", 13),
+        )
+        self.edit_canvas.bind("<Button-1>", lambda _event: self._toggle_move_mode())
+        self.edit_canvas.bind(
+            "<Enter>", lambda _event: self.edit_canvas.configure(bg="#2a2e37")
+        )
+        self.edit_canvas.bind(
+            "<Leave>", lambda _event: self.edit_canvas.configure(bg="#20232a")
+        )
+
         # Tk creates a child drawing HWND inside a native top-level wrapper.
         # Extended window styles must be applied to the wrapper, otherwise the
         # child may become transparent to input while the actual window stays
@@ -182,18 +211,21 @@ class ContextBadge:
         self.root.update_idletasks()
         tk_hwnd = self.root.winfo_id()
         self.overlay_hwnd = user32.GetParent(tk_hwnd) or tk_hwnd
+        edit_tk_hwnd = self.edit_window.winfo_id()
+        self.edit_hwnd = user32.GetParent(edit_tk_hwnd) or edit_tk_hwnd
         self.last_foreground = 0
         self.last_identity: tuple[str, str] | None = None
         self.current_app_name = "CONTEXT BADGE"
         self.move_mode = False
-        self.m_was_down = False
         self.drag_offset = (0, 0)
         self.saved_position = self._load_position()
         self._set_click_through(True)
+        self._make_edit_button_interactive()
         self.canvas.bind("<ButtonPress-1>", self._start_drag)
         self.canvas.bind("<B1-Motion>", self._drag)
         self.canvas.bind("<ButtonRelease-1>", self._finish_drag)
         user32.ShowWindow(self.overlay_hwnd, SW_SHOWNOACTIVATE)
+        user32.ShowWindow(self.edit_hwnd, SW_SHOWNOACTIVATE)
         self.root.after(0, self.refresh)
 
     def _load_position(self) -> tuple[int, int] | None:
@@ -228,25 +260,41 @@ class ContextBadge:
             SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
         )
 
+    def _make_edit_button_interactive(self) -> None:
+        style = user32.GetWindowLongW(self.edit_hwnd, GWL_EXSTYLE)
+        style |= WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE
+        style &= ~WS_EX_TRANSPARENT
+        user32.SetWindowLongW(self.edit_hwnd, GWL_EXSTYLE, style)
+        user32.SetWindowPos(
+            self.edit_hwnd,
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+        )
+
     def _toggle_move_mode(self) -> None:
         self.move_mode = not self.move_mode
         self._set_click_through(not self.move_mode)
         self.canvas.configure(
-            highlightbackground="#69a7ff" if self.move_mode else "#343842"
+            highlightbackground="#69a7ff" if self.move_mode else "#343842",
+            cursor="fleur" if self.move_mode else "",
+        )
+        self.edit_canvas.itemconfigure(
+            self.edit_icon,
+            text="✓" if self.move_mode else "✎",
+            fill="#8fc0ff" if self.move_mode else "#c5cbd6",
+        )
+        self.edit_canvas.configure(
+            highlightbackground="#69a7ff" if self.move_mode else "#3b404b"
         )
         self._update_app_label()
 
     def _update_app_label(self) -> None:
         prefix = "MOVE MODE · " if self.move_mode else ""
         self.canvas.itemconfigure(self.app_text, text=prefix + self.current_app_name)
-
-    def _check_move_hotkey(self) -> None:
-        ctrl_down = bool(user32.GetAsyncKeyState(VK_CONTROL) & 0x8000)
-        alt_down = bool(user32.GetAsyncKeyState(VK_MENU) & 0x8000)
-        m_down = bool(user32.GetAsyncKeyState(VK_M) & 0x8000)
-        if ctrl_down and alt_down and m_down and not self.m_was_down:
-            self._toggle_move_mode()
-        self.m_was_down = m_down
 
     def _start_drag(self, event: tk.Event) -> None:
         if self.move_mode:
@@ -278,6 +326,18 @@ class ContextBadge:
             0,
             SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
         )
+        edit_x = x + self.WIDTH - 38
+        edit_y = y + 8
+        self.edit_window.geometry(f"28x28+{edit_x}+{edit_y}")
+        user32.SetWindowPos(
+            self.edit_hwnd,
+            HWND_TOPMOST,
+            edit_x,
+            edit_y,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+        )
 
     def _move_to_active_monitor(self, foreground: int) -> None:
         if self.saved_position is not None:
@@ -289,9 +349,8 @@ class ContextBadge:
         self._set_position(x, y)
 
     def refresh(self) -> None:
-        self._check_move_hotkey()
         foreground = user32.GetForegroundWindow()
-        if foreground and foreground != self.overlay_hwnd:
+        if foreground and foreground not in (self.overlay_hwnd, self.edit_hwnd):
             self.last_foreground = foreground
         else:
             foreground = self.last_foreground

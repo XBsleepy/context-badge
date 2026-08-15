@@ -18,10 +18,11 @@ window that launched it.
 
 ## Move the badge
 
-The badge is click-through during normal use. Press `Ctrl+Alt+M` to enter move
-mode: its border turns blue and `MOVE MODE` appears in the label. Drag anywhere
-on the badge with the left mouse button, then press `Ctrl+Alt+M` again to lock it.
-The position is remembered for future launches.
+The badge is click-through during normal use, except for its small pencil button.
+Click the pencil to enter move mode: its border turns blue and `MOVE MODE`
+appears in the label. Drag anywhere on the badge with the left mouse button,
+then click the check mark to lock it. The position is remembered for future
+launches.
 
 ## Current scope
 
