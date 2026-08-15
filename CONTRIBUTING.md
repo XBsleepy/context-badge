@@ -20,6 +20,14 @@ python -m unittest discover -s tests -v
 python -m compileall -q app.py context_badge
 ```
 
+Build a packaged Windows executable with:
+
+```powershell
+.\build.ps1
+```
+
+Do not commit `dist/` or `build/`; they are generated artifacts.
+
 ## Pull requests
 
 - Keep changes focused and explain the user-visible behaviour.

@@ -2,6 +2,7 @@ __pycache__/
 *.py[cod]
 .context-badge.json
 .venv/
+.venv-build/
 build/
 dist/
 *.egg-info/

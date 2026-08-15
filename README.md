@@ -23,12 +23,22 @@ other user-defined contexts.
 ## Requirements
 
 - Windows 10 or Windows 11
-- Python 3.11 or newer
+- Python 3.11 or newer when running from source
 
 Context Badge currently uses Win32 APIs directly and does not support macOS or
-Linux.
+Linux. The packaged `.exe` embeds Python, so end users do not need a separate
+interpreter.
 
 ## Quick start
+
+### Windows executable
+
+Download [`ContextBadge.exe`](https://github.com/XBsleepy/context-badge/releases)
+from the latest release, then double-click it. No Python install is required.
+
+The executable is a single file. Stop the app from its Edit menu.
+
+### From source
 
 Clone the repository and run:
 
@@ -83,9 +93,10 @@ Choose `Exit Context Badge` to close the app immediately.
 
 ## Preferences and privacy
 
-Preferences are stored in `.context-badge.json` beside the repository and are
-excluded from Git. The file contains only UI preferences such as position,
-dimensions, and colours.
+When you run from source, preferences are stored in `.context-badge.json`
+beside the repository. The packaged Windows executable stores the same settings
+in `%LOCALAPPDATA%\Context Badge\preferences.json`. Both files are local only
+and contain UI preferences such as position, dimensions, and colours.
 
 The current version reads the foreground window handle, executable name, and
 visible native window title. It does not capture screenshots, record keystrokes,
@@ -108,6 +119,7 @@ The codebase uses only the Python standard library:
 ```text
 context_badge/
 ├── app.py          UI state and interactions
+├── paths.py        source vs packaged config locations
 ├── text_layout.py  measured wrapping and ellipsis
 ├── theme.py        palette and theme helpers
 └── win32.py        Windows API boundary
@@ -122,6 +134,18 @@ python -m compileall -q app.py context_badge
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
+## Packaging
+
+Build a windowed, single-file Windows executable with:
+
+```powershell
+.\build.ps1
+```
+
+The result is `dist\ContextBadge.exe`. Double-click it to start Context Badge
+without a console window. PyInstaller is a build-time dependency only; the
+runtime still uses the Python standard library.
+
 ## Roadmap
 
 - User-defined rules mapping applications and title patterns to stable contexts
@@ -129,7 +153,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 - VS Code extension support for workspaces and active files
 - A richer in-app colour picker
 - System tray integration and launch-at-login support
-- Packaged Windows releases that do not require Python
 
 ## License
 

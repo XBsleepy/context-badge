@@ -14,3 +14,5 @@ All notable changes to Context Badge are documented here.
 - Transparent background support.
 - Bounded wrapping and ellipsis for long titles.
 - Extensible Edit menu with a direct Exit action.
+- Windowed single-file Windows executable via PyInstaller.
+- Packaged builds store preferences under `%LOCALAPPDATA%\Context Badge`.

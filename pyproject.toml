@@ -22,6 +22,9 @@ classifiers = [
 ]
 dependencies = []
 
+[project.optional-dependencies]
+packaging = ["pyinstaller>=6.3"]
+
 [project.scripts]
 context-badge = "context_badge.__main__:main"
 

@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import json
 import tkinter as tk
-from pathlib import Path
 from tkinter import font as tkfont
 
+from .paths import config_path
 from .text_layout import fit_text
 from .theme import (
     COLOUR_PALETTE,
@@ -41,9 +41,6 @@ from .win32 import (
     user32,
     window_title,
 )
-
-CONFIG_PATH = Path(__file__).resolve().parents[1] / ".context-badge.json"
-
 
 class ContextBadge:
     DEFAULT_WIDTH = 440
@@ -251,7 +248,7 @@ class ContextBadge:
 
     def _load_config(self) -> dict[str, object]:
         try:
-            data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+            data = json.loads(config_path().read_text(encoding="utf-8"))
             return data if isinstance(data, dict) else {}
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             return {}
@@ -263,9 +260,9 @@ class ContextBadge:
             return None
 
     def _save_config(self) -> None:
-        CONFIG_PATH.write_text(
-            json.dumps(self.config, indent=2), encoding="utf-8"
-        )
+        path = config_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(self.config, indent=2), encoding="utf-8")
 
     def _save_position(self) -> None:
         x, y = self.root.winfo_x(), self.root.winfo_y()
