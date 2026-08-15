@@ -49,14 +49,22 @@ DEFAULT_BACKGROUND = "#263244"
 DEFAULT_TEXT = "#f4f7fb"
 TRANSPARENT_KEY = "#010203"
 COLOUR_PALETTE = (
-    "#111827",
+    "#0f172a",
     "#263244",
     "#475569",
+    "#94a3b8",
     "#f8fafc",
+    "#facc15",
+    "#f97316",
+    "#ef4444",
+    "#ec4899",
+    "#8b5cf6",
+    "#6366f1",
     "#2563eb",
-    "#7c3aed",
+    "#06b6d4",
     "#059669",
-    "#dc2626",
+    "#84cc16",
+    "#a16207",
 )
 
 
@@ -166,7 +174,7 @@ class ContextBadge:
     COLOUR_MENU_WIDTH = 304
     MENU_ROW_HEIGHT = 42
     COLOUR_HEADER_HEIGHT = 38
-    COLOUR_ROW_HEIGHT = 48
+    COLOUR_ROW_HEIGHT = 54
     TOP_MARGIN = 18
     POLL_MS = 200
 
@@ -243,6 +251,14 @@ class ContextBadge:
             cursor="hand2",
         )
         self.edit_canvas.pack()
+        self.edit_button_bg = self.edit_canvas.create_oval(
+            7,
+            self.HEIGHT // 2 - 15,
+            self.EDIT_WIDTH - 7,
+            self.HEIGHT // 2 + 15,
+            fill=self.background_color,
+            outline=self.background_color,
+        )
         self.edit_divider = self.edit_canvas.create_line(
             0, 10, 0, self.HEIGHT - 10, fill=self.border_color
         )
@@ -255,11 +271,11 @@ class ContextBadge:
         )
         self.edit_canvas.bind("<Button-1>", lambda _event: self._toggle_edit_control())
         self.edit_canvas.bind(
-            "<Enter>", lambda _event: self.edit_canvas.configure(bg=self.hover_color)
+            "<Enter>", lambda _event: self._set_edit_hover(True)
         )
         self.edit_canvas.bind(
             "<Leave>",
-            lambda _event: self.edit_canvas.configure(bg=self.background_color),
+            lambda _event: self._set_edit_hover(False),
         )
 
         # The first level stays compact. All appearance controls live under the
@@ -459,7 +475,7 @@ class ContextBadge:
 
     def _render_colour_menu(self) -> None:
         self.menu_width = self.COLOUR_MENU_WIDTH
-        self.menu_height = self.COLOUR_HEADER_HEIGHT + self.COLOUR_ROW_HEIGHT * 3 + 42
+        self.menu_height = self.COLOUR_HEADER_HEIGHT + self.COLOUR_ROW_HEIGHT * 3
         self.menu_canvas.configure(width=self.menu_width, height=self.menu_height)
         self.menu_canvas.create_text(
             14,
@@ -482,7 +498,7 @@ class ContextBadge:
             ("Text", "text_color", self.text_color),
             ("Border", "border_color", self.border_color),
         )
-        swatch_x = 118
+        swatch_x = 106
         swatch_size = 17
         swatch_gap = 5
         for row, (label, _key, selected) in enumerate(properties):
@@ -495,9 +511,32 @@ class ContextBadge:
                 fill="#f3f5f7",
                 font=("Segoe UI", 10),
             )
+            if row == 0:
+                transparent_outline = (
+                    "#ffffff" if self.background_transparent else "#596170"
+                )
+                self.menu_canvas.create_rectangle(
+                    80,
+                    row_top + 18,
+                    97,
+                    row_top + 35,
+                    fill="#20232a",
+                    outline=transparent_outline,
+                    width=2 if self.background_transparent else 1,
+                )
+                self.menu_canvas.create_line(
+                    82,
+                    row_top + 33,
+                    95,
+                    row_top + 20,
+                    fill="#ff8f8f",
+                    width=2,
+                )
             for index, colour in enumerate(COLOUR_PALETTE):
-                x1 = swatch_x + index * (swatch_size + swatch_gap)
-                y1 = row_top + (self.COLOUR_ROW_HEIGHT - swatch_size) // 2
+                column = index % 8
+                palette_row = index // 8
+                x1 = swatch_x + column * (swatch_size + swatch_gap)
+                y1 = row_top + 6 + palette_row * (swatch_size + swatch_gap)
                 outline = "#ffffff" if colour.lower() == str(selected).lower() else "#596170"
                 width = 2 if colour.lower() == str(selected).lower() else 1
                 self.menu_canvas.create_rectangle(
@@ -509,37 +548,6 @@ class ContextBadge:
                     outline=outline,
                     width=width,
                 )
-
-        toggle_y = self.COLOUR_HEADER_HEIGHT + self.COLOUR_ROW_HEIGHT * 3
-        self.menu_canvas.create_line(
-            10, toggle_y, self.menu_width - 10, toggle_y, fill="#3b404b"
-        )
-        self.menu_canvas.create_text(
-            14,
-            toggle_y + 21,
-            anchor="w",
-            text="Transparent background",
-            fill="#f3f5f7",
-            font=("Segoe UI", 10),
-        )
-        pill_colour = "#4f8cff" if self.background_transparent else "#4a505c"
-        self.menu_canvas.create_rectangle(
-            self.menu_width - 54,
-            toggle_y + 11,
-            self.menu_width - 16,
-            toggle_y + 31,
-            fill=pill_colour,
-            outline=pill_colour,
-        )
-        knob_x = self.menu_width - (33 if self.background_transparent else 51)
-        self.menu_canvas.create_oval(
-            knob_x,
-            toggle_y + 14,
-            knob_x + 14,
-            toggle_y + 28,
-            fill="#ffffff",
-            outline="#ffffff",
-        )
 
     def _open_colours(self) -> None:
         self.menu_page = "colours"
@@ -557,23 +565,37 @@ class ContextBadge:
             self._render_menu()
             return
 
-        palette_bottom = self.COLOUR_HEADER_HEIGHT + self.COLOUR_ROW_HEIGHT * 3
-        if event.y < palette_bottom:
-            row = (event.y - self.COLOUR_HEADER_HEIGHT) // self.COLOUR_ROW_HEIGHT
-            swatch_x = 118
-            step = 22
-            swatch = (event.x - swatch_x) // step
-            within_swatch = 0 <= (event.x - swatch_x) % step <= 17
-            if 0 <= row < 3 and 0 <= swatch < len(COLOUR_PALETTE) and within_swatch:
-                key = ("background_color", "text_color", "border_color")[row]
-                self._set_colour(key, COLOUR_PALETTE[swatch])
+        row = (event.y - self.COLOUR_HEADER_HEIGHT) // self.COLOUR_ROW_HEIGHT
+        local_y = (event.y - self.COLOUR_HEADER_HEIGHT) % self.COLOUR_ROW_HEIGHT
+        if not 0 <= row < 3:
+            return
+        if row == 0 and 80 <= event.x <= 97 and 18 <= local_y <= 35:
+            self.background_transparent = True
+            self.config["background_transparent"] = True
+            self._apply_theme()
+            self._save_config()
+            self._render_menu()
             return
 
-        self.background_transparent = not self.background_transparent
-        self.config["background_transparent"] = self.background_transparent
-        self._apply_theme()
-        self._save_config()
-        self._render_menu()
+        swatch_x = 106
+        step = 22
+        column = (event.x - swatch_x) // step
+        palette_row = (local_y - 6) // step
+        within_x = 0 <= (event.x - swatch_x) % step <= 17
+        within_y = 0 <= (local_y - 6) % step <= 17
+        swatch = palette_row * 8 + column
+        if (
+            0 <= column < 8
+            and 0 <= palette_row < 2
+            and within_x
+            and within_y
+            and 0 <= swatch < len(COLOUR_PALETTE)
+        ):
+            key = ("background_color", "text_color", "border_color")[row]
+            if key == "background_color":
+                self.background_transparent = False
+                self.config["background_transparent"] = False
+            self._set_colour(key, COLOUR_PALETTE[swatch])
 
     def _set_menu_open(self, open_: bool) -> None:
         self.menu_open = open_
@@ -627,10 +649,33 @@ class ContextBadge:
         )
         self.canvas.itemconfigure(self.app_text, fill=self.secondary_text_color)
         self.canvas.itemconfigure(self.title_text, fill=self.text_color)
-        self.edit_window.configure(bg=self.background_color)
-        self.edit_canvas.configure(bg=self.background_color)
+        self.edit_window.attributes(
+            "-transparentcolor", TRANSPARENT_KEY if transparent_now else ""
+        )
+        edit_body_colour = TRANSPARENT_KEY if transparent_now else self.background_color
+        self.edit_window.configure(bg=edit_body_colour)
+        self.edit_canvas.configure(bg=edit_body_colour)
+        button_fill = self.hover_color if transparent_now else self.background_color
+        button_outline = self.border_color if transparent_now else self.background_color
+        self.edit_canvas.itemconfigure(
+            self.edit_button_bg, fill=button_fill, outline=button_outline
+        )
         self.edit_canvas.itemconfigure(self.edit_divider, fill=self.border_color)
         self._update_edit_icon()
+
+    def _set_edit_hover(self, hovered: bool) -> None:
+        transparent_now = self.background_transparent and not self.move_mode
+        if transparent_now:
+            fill = (
+                blend_hex(self.background_color, self.text_color, 0.24)
+                if hovered
+                else self.hover_color
+            )
+            self.edit_canvas.itemconfigure(self.edit_button_bg, fill=fill)
+        else:
+            self.edit_canvas.configure(
+                bg=self.hover_color if hovered else self.background_color
+            )
 
     def _quit(self) -> None:
         if self.move_mode:

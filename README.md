@@ -31,12 +31,14 @@ renaming a context, choosing a colour, or creating a matching rule.
 Choose `× Exit Context Badge` in the edit menu to close the application
 immediately.
 
-Open `Colours` for an in-app palette with second-level controls for background,
-text, border, and transparent background. No system colour dialog is used.
+Open `Colours` for an in-app 16-colour palette with second-level controls for
+background, text, and border. Transparent is the crossed-out first swatch in the
+Background row. No system colour dialog is used.
 Theme choices are stored alongside the badge position and restored on launch.
 The default background is a softer blue-grey rather than pure black. When
-transparent background is enabled, move mode temporarily restores the selected
-background so the badge remains easy to drag.
+transparent background is selected, the badge and edit rail become transparent;
+the edit action remains available as a small button. Move mode temporarily
+restores the selected background so the badge remains easy to drag.
 
 ## Current scope
 
