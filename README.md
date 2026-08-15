@@ -18,11 +18,15 @@ window that launched it.
 
 ## Move the badge
 
-The badge is click-through during normal use, except for its small pencil button.
-Click the pencil to enter move mode: its border turns blue and `MOVE MODE`
-appears in the label. Drag anywhere on the badge with the left mouse button,
-then click the check mark to lock it. The position is remembered for future
-launches.
+The badge is click-through during normal use, except for the pencil inside its
+right edge. Click the pencil to open the edit menu, then choose `Move badge`.
+Its border turns blue and `MOVE MODE` appears in the label. Drag anywhere on the
+badge with the left mouse button, then click the check mark to lock it. The
+position is saved when dragging finishes and again when move mode is closed, and
+is restored immediately on future launches.
+
+The edit menu is action-based so later versions can add operations such as
+renaming a context, choosing a colour, or creating a matching rule.
 
 ## Current scope
 
