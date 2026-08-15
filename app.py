@@ -12,6 +12,7 @@ import os
 import tkinter as tk
 from ctypes import wintypes
 from pathlib import Path
+from tkinter import colorchooser
 
 
 if os.name != "nt":
@@ -45,6 +46,19 @@ SW_SHOWNOACTIVATE = 4
 MONITOR_DEFAULTTONEAREST = 0x00000002
 
 CONFIG_PATH = Path(__file__).with_name(".context-badge.json")
+DEFAULT_BACKGROUND = "#263244"
+DEFAULT_TEXT = "#f4f7fb"
+
+
+def blend_hex(background: str, foreground: str, amount: float) -> str:
+    """Blend two #RRGGBB colours; amount is the foreground proportion."""
+    background_rgb = tuple(int(background[i : i + 2], 16) for i in (1, 3, 5))
+    foreground_rgb = tuple(int(foreground[i : i + 2], 16) for i in (1, 3, 5))
+    mixed = tuple(
+        round(bg + (fg - bg) * amount)
+        for bg, fg in zip(background_rgb, foreground_rgb)
+    )
+    return "#" + "".join(f"{channel:02x}" for channel in mixed)
 
 
 class RECT(ctypes.Structure):
@@ -144,11 +158,22 @@ class ContextBadge:
     POLL_MS = 200
 
     def __init__(self) -> None:
+        self.config = self._load_config()
+        self.background_color = self.config.get(
+            "background_color", DEFAULT_BACKGROUND
+        )
+        self.text_color = self.config.get("text_color", DEFAULT_TEXT)
+        self.secondary_text_color = blend_hex(
+            self.background_color, self.text_color, 0.68
+        )
+        self.border_color = blend_hex(self.background_color, self.text_color, 0.22)
+        self.hover_color = blend_hex(self.background_color, self.text_color, 0.12)
+
         self.root = tk.Tk()
         self.root.title("Context Badge")
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
-        self.root.configure(bg="#15171c")
+        self.root.configure(bg=self.background_color)
         self.root.geometry(
             f"{self.WIDTH}x{self.HEIGHT}"
             f"+{(self.root.winfo_screenwidth() - self.WIDTH) // 2}"
@@ -159,16 +184,16 @@ class ContextBadge:
             self.root,
             width=self.WIDTH,
             height=self.HEIGHT,
-            bg="#15171c",
+            bg=self.background_color,
             highlightthickness=1,
-            highlightbackground="#343842",
+            highlightbackground=self.border_color,
         )
         self.canvas.pack()
         self.app_text = self.canvas.create_text(
             22,
             19,
             anchor="w",
-            fill="#9ea7b8",
+            fill=self.secondary_text_color,
             font=("Segoe UI Semibold", 10),
             text="CONTEXT BADGE",
         )
@@ -177,7 +202,7 @@ class ContextBadge:
             47,
             anchor="w",
             width=self.WIDTH - self.EDIT_WIDTH - 38,
-            fill="#f3f5f7",
+            fill=self.text_color,
             font=("Segoe UI Semibold", 13),
             text="Starting…",
         )
@@ -189,36 +214,41 @@ class ContextBadge:
         self.edit_window.title("Edit Context Badge")
         self.edit_window.overrideredirect(True)
         self.edit_window.attributes("-topmost", True)
-        self.edit_window.configure(bg="#242832")
+        self.edit_window.configure(bg=self.background_color)
         self.edit_canvas = tk.Canvas(
             self.edit_window,
             width=self.EDIT_WIDTH,
             height=self.HEIGHT,
-            bg="#242832",
+            bg=self.background_color,
             highlightthickness=0,
             cursor="hand2",
         )
         self.edit_canvas.pack()
-        self.edit_canvas.create_line(0, 10, 0, self.HEIGHT - 10, fill="#4a5160")
+        self.edit_divider = self.edit_canvas.create_line(
+            0, 10, 0, self.HEIGHT - 10, fill=self.border_color
+        )
         self.edit_icon = self.edit_canvas.create_text(
             self.EDIT_WIDTH // 2,
             self.HEIGHT // 2,
             text="✎",
-            fill="#f0f3f8",
+            fill=self.text_color,
             font=("Segoe UI Symbol", 13),
         )
         self.edit_canvas.bind("<Button-1>", lambda _event: self._toggle_edit_control())
         self.edit_canvas.bind(
-            "<Enter>", lambda _event: self.edit_canvas.configure(bg="#303642")
+            "<Enter>", lambda _event: self.edit_canvas.configure(bg=self.hover_color)
         )
         self.edit_canvas.bind(
-            "<Leave>", lambda _event: self.edit_canvas.configure(bg="#242832")
+            "<Leave>",
+            lambda _event: self.edit_canvas.configure(bg=self.background_color),
         )
 
         # This popover is intentionally action-based so future edit operations
         # (rename context, choose colour, add a rule) can be appended here.
         self.edit_actions = [
             ("↔  Move badge", self._begin_move, "#f3f5f7"),
+            ("▣  Background colour", self._choose_background, "#f3f5f7"),
+            ("A  Text colour", self._choose_text, "#f3f5f7"),
             ("×  Exit Context Badge", self._quit, "#ff8f8f"),
         ]
         self.menu_height = self.MENU_ROW_HEIGHT * len(self.edit_actions)
@@ -288,18 +318,28 @@ class ContextBadge:
             self._set_position(*self.saved_position)
         self.root.after(0, self.refresh)
 
-    def _load_position(self) -> tuple[int, int] | None:
+    def _load_config(self) -> dict[str, object]:
         try:
             data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-            return int(data["x"]), int(data["y"])
-        except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+            return data if isinstance(data, dict) else {}
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return {}
+
+    def _load_position(self) -> tuple[int, int] | None:
+        try:
+            return int(self.config["x"]), int(self.config["y"])
+        except (ValueError, KeyError, TypeError):
             return None
+
+    def _save_config(self) -> None:
+        CONFIG_PATH.write_text(
+            json.dumps(self.config, indent=2), encoding="utf-8"
+        )
 
     def _save_position(self) -> None:
         x, y = self.root.winfo_x(), self.root.winfo_y()
-        CONFIG_PATH.write_text(
-            json.dumps({"x": x, "y": y}, indent=2), encoding="utf-8"
-        )
+        self.config.update({"x": x, "y": y})
+        self._save_config()
         self.saved_position = (x, y)
 
     def _set_click_through(self, enabled: bool) -> None:
@@ -400,6 +440,46 @@ class ContextBadge:
         self._update_edit_icon()
         self._update_app_label()
 
+    def _choose_background(self) -> None:
+        self._choose_colour("background_color", "Choose badge background colour")
+
+    def _choose_text(self) -> None:
+        self._choose_colour("text_color", "Choose badge text colour")
+
+    def _choose_colour(self, key: str, title: str) -> None:
+        self._set_menu_open(False)
+        current = self.background_color if key == "background_color" else self.text_color
+        selected = colorchooser.askcolor(
+            color=current, title=title, parent=self.root
+        )[1]
+        if not selected:
+            return
+        if key == "background_color":
+            self.background_color = selected
+        else:
+            self.text_color = selected
+        self.config[key] = selected
+        self._apply_theme()
+        self._save_config()
+
+    def _apply_theme(self) -> None:
+        self.secondary_text_color = blend_hex(
+            self.background_color, self.text_color, 0.68
+        )
+        self.border_color = blend_hex(self.background_color, self.text_color, 0.22)
+        self.hover_color = blend_hex(self.background_color, self.text_color, 0.12)
+        self.root.configure(bg=self.background_color)
+        self.canvas.configure(
+            bg=self.background_color,
+            highlightbackground="#69a7ff" if self.move_mode else self.border_color,
+        )
+        self.canvas.itemconfigure(self.app_text, fill=self.secondary_text_color)
+        self.canvas.itemconfigure(self.title_text, fill=self.text_color)
+        self.edit_window.configure(bg=self.background_color)
+        self.edit_canvas.configure(bg=self.background_color)
+        self.edit_canvas.itemconfigure(self.edit_divider, fill=self.border_color)
+        self._update_edit_icon()
+
     def _run_edit_action(self, event: tk.Event) -> None:
         index = event.y // self.MENU_ROW_HEIGHT
         if 0 <= index < len(self.edit_actions):
@@ -414,7 +494,7 @@ class ContextBadge:
         self._save_position()
         self.move_mode = False
         self._set_click_through(True)
-        self.canvas.configure(highlightbackground="#343842", cursor="")
+        self.canvas.configure(highlightbackground=self.border_color, cursor="")
         self._update_edit_icon()
         self._update_app_label()
 
@@ -422,7 +502,9 @@ class ContextBadge:
         icon = "✓" if self.move_mode else ("×" if self.menu_open else "✎")
         active = self.move_mode or self.menu_open
         self.edit_canvas.itemconfigure(
-            self.edit_icon, text=icon, fill="#8fc0ff" if active else "#f0f3f8"
+            self.edit_icon,
+            text=icon,
+            fill="#8fc0ff" if active else self.text_color,
         )
         self._raise_edit_control()
 
