@@ -31,9 +31,12 @@ renaming a context, choosing a colour, or creating a matching rule.
 Choose `× Exit Context Badge` in the edit menu to close the application
 immediately.
 
-Choose `Background colour` or `Text colour` to open the Windows colour picker.
-Theme colours are stored alongside the badge position and restored on launch.
-The default background is a softer blue-grey rather than pure black.
+Open `Colours` for an in-app palette with second-level controls for background,
+text, border, and transparent background. No system colour dialog is used.
+Theme choices are stored alongside the badge position and restored on launch.
+The default background is a softer blue-grey rather than pure black. When
+transparent background is enabled, move mode temporarily restores the selected
+background so the badge remains easy to drag.
 
 ## Current scope
 
