@@ -1,61 +1,136 @@
 # Context Badge
 
-A persistent, always-on-top badge that shows the active Windows application and
-window title. The badge follows the active window to its monitor, never takes
-keyboard focus, and lets mouse clicks pass through it.
+Context Badge is a small, persistent Windows overlay that shows which desktop
+window you are currently using. It stays above normal windows without taking
+keyboard focus and keeps the rest of the badge click-through.
 
-## Step 1: run the prototype
+The project is an early foundation for a richer context reminder: browser tabs,
+VS Code workspaces, research sessions, LeetCode windows, writing projects, and
+other user-defined contexts.
 
-Requirements: Windows 10/11 and Python 3.11+.
+## Features
+
+- Observes the active top-level window across standard Windows applications.
+- Displays the application/context label separately from the window title.
+- Wraps and ellipsizes long titles without overlapping the label.
+- Remains always on top and follows the active monitor until manually placed.
+- Preserves click-through behaviour outside edit modes.
+- Supports persistent position and size.
+- Includes an in-app colour palette for background, text, and border.
+- Supports a transparent background while keeping the edit control available.
+- Stores preferences locally and has no runtime dependencies.
+
+## Requirements
+
+- Windows 10 or Windows 11
+- Python 3.11 or newer
+
+Context Badge currently uses Win32 APIs directly and does not support macOS or
+Linux.
+
+## Quick start
+
+Clone the repository and run:
 
 ```powershell
+git clone <repository-url>
+cd context-badge
 .\run.ps1
 ```
 
-Switch between browser, VS Code, terminal, and other windows. The badge should
-update within 200 ms and remain visible. Stop it with `Ctrl+C` in the PowerShell
-window that launched it.
+Alternatively:
 
-## Move the badge
+```powershell
+python -m context_badge
+```
 
-The badge is click-through during normal use, except for the pencil inside its
-right edge. Click the pencil to open the edit menu, then choose `Move badge`.
-Its border turns blue and `MOVE MODE` appears in the label. Drag anywhere on the
-badge with the left mouse button, then click the check mark to lock it. The
-position is saved when dragging finishes and again when move mode is closed, and
-is restored immediately on future launches.
+Stop the app from its Edit menu, or press `Ctrl+C` in the terminal that launched
+it.
 
-Choose `Resize badge`, then drag the badge body to change its width and height.
-Click the check mark to lock the size. Dimensions are persisted with the badge
-position and constrained to a usable range.
+## Using the badge
 
-The application/context label and active window title occupy separate text
-regions. Long labels are ellipsized. Long titles wrap only into the available
-content region and end with an ellipsis when the badge cannot show all of them.
+The pencil on the right edge opens the Edit menu. The rest of the badge remains
+click-through during normal use.
 
-The edit menu is action-based so later versions can add operations such as
-renaming a context, choosing a colour, or creating a matching rule.
+### Move
 
-Choose `× Exit Context Badge` in the edit menu to close the application
-immediately.
+Choose `Move badge`, drag the badge body, and click the check mark to lock the
+new position.
 
-Open `Colours` for an in-app 16-colour palette with second-level controls for
-background, text, and border. Transparent is the crossed-out first swatch in the
-Background row. No system colour dialog is used.
-Theme choices are stored alongside the badge position and restored on launch.
-The default background is a softer blue-grey rather than pure black. When
-transparent background is selected, the badge and edit rail become transparent;
-the edit action remains available as a small button. Move mode temporarily
-restores the selected background so the badge remains easy to drag.
+### Resize
 
-## Current scope
+Choose `Resize badge`, drag the badge body to change its width and height, and
+click the check mark to save. The supported range is 280–1000 px wide and
+64–260 px high.
 
-- Observes every standard top-level Windows application.
-- Distinguishes windows through their live title and process.
-- Stays above full-screen/maximized windows that permit topmost overlays.
-- Follows the active window across monitors.
-- Does not yet classify titles into human-friendly work contexts.
-- Does not yet observe tabs whose title is hidden from the native window title.
+### Colours
 
-The next step is a local rules file that maps application/title patterns to a
-stable context name such as `LeetCode` or `RSI Research`.
+Open `Colours` to configure:
+
+- Background
+- Text
+- Border
+- Transparent background, represented by the crossed-out first background
+  swatch
+
+The palette is rendered inside the app; no system colour dialog is opened. A
+transparent badge temporarily restores its selected background in Move and
+Resize modes so it remains easy to manipulate.
+
+### Exit
+
+Choose `Exit Context Badge` to close the app immediately.
+
+## Preferences and privacy
+
+Preferences are stored in `.context-badge.json` beside the repository and are
+excluded from Git. The file contains only UI preferences such as position,
+dimensions, and colours.
+
+The current version reads the foreground window handle, executable name, and
+visible native window title. It does not capture screenshots, record keystrokes,
+or send data over the network.
+
+## Current limitations
+
+- Recognition is based on the process and native window title; semantic labels
+  such as `LeetCode` and `RSI Research` are not implemented yet.
+- A browser or editor tab can only be observed when its title is exposed through
+  the top-level window title.
+- Browser URLs and VS Code workspace metadata will require optional extensions
+  or accessibility integrations.
+- Full-screen applications may choose to render above third-party overlays.
+
+## Development
+
+The codebase uses only the Python standard library:
+
+```text
+context_badge/
+├── app.py          UI state and interactions
+├── text_layout.py  measured wrapping and ellipsis
+├── theme.py        palette and theme helpers
+└── win32.py        Windows API boundary
+```
+
+Run checks with:
+
+```powershell
+python -m unittest discover -s tests -v
+python -m py_compile app.py context_badge\*.py
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
+
+## Roadmap
+
+- User-defined rules mapping applications and title patterns to stable contexts
+- Browser extension support for URLs and in-window tab changes
+- VS Code extension support for workspaces and active files
+- A richer in-app colour picker
+- System tray integration and launch-at-login support
+- Packaged Windows releases that do not require Python
+
+## License
+
+Context Badge is available under the [MIT License](LICENSE).

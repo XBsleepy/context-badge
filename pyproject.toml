@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "context-badge"
+version = "0.1.0"
+description = "A persistent, context-aware badge for the Windows desktop."
+readme = "README.md"
+requires-python = ">=3.11"
+license = {file = "LICENSE"}
+authors = [{name = "XBsleepy"}]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Win32 (MS Windows)",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: Microsoft :: Windows :: Windows 10",
+  "Operating System :: Microsoft :: Windows :: Windows 11",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Desktop Environment",
+]
+dependencies = []
+
+[project.scripts]
+context-badge = "context_badge.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["context_badge*"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
