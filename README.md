@@ -16,6 +16,13 @@ Switch between browser, VS Code, terminal, and other windows. The badge should
 update within 200 ms and remain visible. Stop it with `Ctrl+C` in the PowerShell
 window that launched it.
 
+## Move the badge
+
+The badge is click-through during normal use. Press `Ctrl+Alt+M` to enter move
+mode: its border turns blue and `MOVE MODE` appears in the label. Drag anywhere
+on the badge with the left mouse button, then press `Ctrl+Alt+M` again to lock it.
+The position is remembered for future launches.
+
 ## Current scope
 
 - Observes every standard top-level Windows application.

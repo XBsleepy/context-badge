@@ -7,9 +7,11 @@ foreground top-level window and displays its application and title.
 from __future__ import annotations
 
 import ctypes
+import json
 import os
 import tkinter as tk
 from ctypes import wintypes
+from pathlib import Path
 
 
 if os.name != "nt":
@@ -34,10 +36,17 @@ WS_EX_LAYERED = 0x00080000
 WS_EX_NOACTIVATE = 0x08000000
 HWND_TOPMOST = -1
 SWP_NOSIZE = 0x0001
+SWP_NOMOVE = 0x0002
 SWP_NOACTIVATE = 0x0010
+SWP_FRAMECHANGED = 0x0020
 SWP_SHOWWINDOW = 0x0040
 SW_SHOWNOACTIVATE = 4
 MONITOR_DEFAULTTONEAREST = 0x00000002
+VK_CONTROL = 0x11
+VK_MENU = 0x12
+VK_M = 0x4D
+
+CONFIG_PATH = Path(__file__).with_name(".context-badge.json")
 
 
 class RECT(ctypes.Structure):
@@ -175,19 +184,90 @@ class ContextBadge:
         self.overlay_hwnd = user32.GetParent(tk_hwnd) or tk_hwnd
         self.last_foreground = 0
         self.last_identity: tuple[str, str] | None = None
-        self._make_non_interactive()
+        self.current_app_name = "CONTEXT BADGE"
+        self.move_mode = False
+        self.m_was_down = False
+        self.drag_offset = (0, 0)
+        self.saved_position = self._load_position()
+        self._set_click_through(True)
+        self.canvas.bind("<ButtonPress-1>", self._start_drag)
+        self.canvas.bind("<B1-Motion>", self._drag)
+        self.canvas.bind("<ButtonRelease-1>", self._finish_drag)
         user32.ShowWindow(self.overlay_hwnd, SW_SHOWNOACTIVATE)
         self.root.after(0, self.refresh)
 
-    def _make_non_interactive(self) -> None:
-        style = user32.GetWindowLongW(self.overlay_hwnd, GWL_EXSTYLE)
-        style |= WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE
-        user32.SetWindowLongW(self.overlay_hwnd, GWL_EXSTYLE, style)
+    def _load_position(self) -> tuple[int, int] | None:
+        try:
+            data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+            return int(data["x"]), int(data["y"])
+        except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+            return None
 
-    def _move_to_active_monitor(self, foreground: int) -> None:
-        work = monitor_work_area(foreground)
-        x = work.left + ((work.right - work.left) - self.WIDTH) // 2
-        y = work.top + self.TOP_MARGIN
+    def _save_position(self) -> None:
+        x, y = self.root.winfo_x(), self.root.winfo_y()
+        CONFIG_PATH.write_text(
+            json.dumps({"x": x, "y": y}, indent=2), encoding="utf-8"
+        )
+        self.saved_position = (x, y)
+
+    def _set_click_through(self, enabled: bool) -> None:
+        style = user32.GetWindowLongW(self.overlay_hwnd, GWL_EXSTYLE)
+        style |= WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE
+        if enabled:
+            style |= WS_EX_TRANSPARENT
+        else:
+            style &= ~WS_EX_TRANSPARENT
+        user32.SetWindowLongW(self.overlay_hwnd, GWL_EXSTYLE, style)
+        user32.SetWindowPos(
+            self.overlay_hwnd,
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+        )
+
+    def _toggle_move_mode(self) -> None:
+        self.move_mode = not self.move_mode
+        self._set_click_through(not self.move_mode)
+        self.canvas.configure(
+            highlightbackground="#69a7ff" if self.move_mode else "#343842"
+        )
+        self._update_app_label()
+
+    def _update_app_label(self) -> None:
+        prefix = "MOVE MODE · " if self.move_mode else ""
+        self.canvas.itemconfigure(self.app_text, text=prefix + self.current_app_name)
+
+    def _check_move_hotkey(self) -> None:
+        ctrl_down = bool(user32.GetAsyncKeyState(VK_CONTROL) & 0x8000)
+        alt_down = bool(user32.GetAsyncKeyState(VK_MENU) & 0x8000)
+        m_down = bool(user32.GetAsyncKeyState(VK_M) & 0x8000)
+        if ctrl_down and alt_down and m_down and not self.m_was_down:
+            self._toggle_move_mode()
+        self.m_was_down = m_down
+
+    def _start_drag(self, event: tk.Event) -> None:
+        if self.move_mode:
+            self.drag_offset = (
+                event.x_root - self.root.winfo_x(),
+                event.y_root - self.root.winfo_y(),
+            )
+
+    def _drag(self, event: tk.Event) -> None:
+        if not self.move_mode:
+            return
+        x = event.x_root - self.drag_offset[0]
+        y = event.y_root - self.drag_offset[1]
+        self.saved_position = (x, y)
+        self._set_position(x, y)
+
+    def _finish_drag(self, _event: tk.Event) -> None:
+        if self.move_mode:
+            self._save_position()
+
+    def _set_position(self, x: int, y: int) -> None:
         self.root.geometry(f"{self.WIDTH}x{self.HEIGHT}+{x}+{y}")
         user32.SetWindowPos(
             self.overlay_hwnd,
@@ -199,7 +279,17 @@ class ContextBadge:
             SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
         )
 
+    def _move_to_active_monitor(self, foreground: int) -> None:
+        if self.saved_position is not None:
+            self._set_position(*self.saved_position)
+            return
+        work = monitor_work_area(foreground)
+        x = work.left + ((work.right - work.left) - self.WIDTH) // 2
+        y = work.top + self.TOP_MARGIN
+        self._set_position(x, y)
+
     def refresh(self) -> None:
+        self._check_move_hotkey()
         foreground = user32.GetForegroundWindow()
         if foreground and foreground != self.overlay_hwnd:
             self.last_foreground = foreground
@@ -211,9 +301,8 @@ class ContextBadge:
             title = window_title(foreground)
             identity = (executable, title)
             if identity != self.last_identity:
-                self.canvas.itemconfigure(
-                    self.app_text, text=friendly_app_name(executable).upper()
-                )
+                self.current_app_name = friendly_app_name(executable).upper()
+                self._update_app_label()
                 self.canvas.itemconfigure(self.title_text, text=title)
                 self.last_identity = identity
             self._move_to_active_monitor(foreground)
