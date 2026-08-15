@@ -25,6 +25,14 @@ badge with the left mouse button, then click the check mark to lock it. The
 position is saved when dragging finishes and again when move mode is closed, and
 is restored immediately on future launches.
 
+Choose `Resize badge`, then drag the badge body to change its width and height.
+Click the check mark to lock the size. Dimensions are persisted with the badge
+position and constrained to a usable range.
+
+The application/context label and active window title occupy separate text
+regions. Long labels are ellipsized. Long titles wrap only into the available
+content region and end with an ellipsis when the badge cannot show all of them.
+
 The edit menu is action-based so later versions can add operations such as
 renaming a context, choosing a colour, or creating a matching rule.
 

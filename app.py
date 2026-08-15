@@ -12,6 +12,7 @@ import os
 import tkinter as tk
 from ctypes import wintypes
 from pathlib import Path
+from tkinter import font as tkfont
 
 
 if os.name != "nt":
@@ -77,6 +78,14 @@ def blend_hex(background: str, foreground: str, amount: float) -> str:
         for bg, fg in zip(background_rgb, foreground_rgb)
     )
     return "#" + "".join(f"{channel:02x}" for channel in mixed)
+
+
+def bounded_int(value: object, default: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(minimum, min(maximum, parsed))
 
 
 class RECT(ctypes.Structure):
@@ -167,8 +176,12 @@ def monitor_work_area(hwnd: int) -> RECT:
 
 
 class ContextBadge:
-    WIDTH = 440
-    HEIGHT = 72
+    DEFAULT_WIDTH = 440
+    DEFAULT_HEIGHT = 72
+    MIN_WIDTH = 280
+    MIN_HEIGHT = 64
+    MAX_WIDTH = 1000
+    MAX_HEIGHT = 260
     EDIT_WIDTH = 44
     MAIN_MENU_WIDTH = 200
     COLOUR_MENU_WIDTH = 304
@@ -194,6 +207,18 @@ class ContextBadge:
         self.background_transparent = bool(
             self.config.get("background_transparent", False)
         )
+        self.badge_width = bounded_int(
+            self.config.get("width"),
+            self.DEFAULT_WIDTH,
+            self.MIN_WIDTH,
+            self.MAX_WIDTH,
+        )
+        self.badge_height = bounded_int(
+            self.config.get("height"),
+            self.DEFAULT_HEIGHT,
+            self.MIN_HEIGHT,
+            self.MAX_HEIGHT,
+        )
         self.hover_color = blend_hex(self.background_color, self.text_color, 0.12)
 
         self.root = tk.Tk()
@@ -202,15 +227,18 @@ class ContextBadge:
         self.root.attributes("-topmost", True)
         self.root.configure(bg=self.background_color)
         self.root.geometry(
-            f"{self.WIDTH}x{self.HEIGHT}"
-            f"+{(self.root.winfo_screenwidth() - self.WIDTH) // 2}"
+            f"{self.badge_width}x{self.badge_height}"
+            f"+{(self.root.winfo_screenwidth() - self.badge_width) // 2}"
             f"+{self.TOP_MARGIN}"
         )
 
+        self.app_font = tkfont.Font(family="Segoe UI Semibold", size=10)
+        self.title_font = tkfont.Font(family="Segoe UI Semibold", size=13)
+
         self.canvas = tk.Canvas(
             self.root,
-            width=self.WIDTH,
-            height=self.HEIGHT,
+            width=self.badge_width,
+            height=self.badge_height,
             bg=self.background_color,
             highlightthickness=1,
             highlightbackground=self.border_color,
@@ -221,17 +249,26 @@ class ContextBadge:
             19,
             anchor="w",
             fill=self.secondary_text_color,
-            font=("Segoe UI Semibold", 10),
+            font=self.app_font,
             text="CONTEXT BADGE",
         )
         self.title_text = self.canvas.create_text(
             22,
-            47,
-            anchor="w",
-            width=self.WIDTH - self.EDIT_WIDTH - 38,
+            38,
+            anchor="nw",
+            width=self.badge_width - self.EDIT_WIDTH - 38,
             fill=self.text_color,
-            font=("Segoe UI Semibold", 13),
+            font=self.title_font,
             text="Starting…",
+        )
+        self.resize_handle = self.canvas.create_text(
+            self.badge_width - self.EDIT_WIDTH - 10,
+            self.badge_height - 8,
+            anchor="se",
+            text="◢",
+            fill="#69a7ff",
+            font=("Segoe UI Symbol", 11),
+            state="hidden",
         )
 
         # The edit control uses a separate native hit target overlaid inside the
@@ -245,7 +282,7 @@ class ContextBadge:
         self.edit_canvas = tk.Canvas(
             self.edit_window,
             width=self.EDIT_WIDTH,
-            height=self.HEIGHT,
+            height=self.badge_height,
             bg=self.background_color,
             highlightthickness=0,
             cursor="hand2",
@@ -253,18 +290,18 @@ class ContextBadge:
         self.edit_canvas.pack()
         self.edit_button_bg = self.edit_canvas.create_oval(
             7,
-            self.HEIGHT // 2 - 15,
+            self.badge_height // 2 - 15,
             self.EDIT_WIDTH - 7,
-            self.HEIGHT // 2 + 15,
+            self.badge_height // 2 + 15,
             fill=self.background_color,
             outline=self.background_color,
         )
         self.edit_divider = self.edit_canvas.create_line(
-            0, 10, 0, self.HEIGHT - 10, fill=self.border_color
+            0, 10, 0, self.badge_height - 10, fill=self.border_color
         )
         self.edit_icon = self.edit_canvas.create_text(
             self.EDIT_WIDTH // 2,
-            self.HEIGHT // 2,
+            self.badge_height // 2,
             text="✎",
             fill=self.text_color,
             font=("Segoe UI Symbol", 13),
@@ -282,6 +319,7 @@ class ContextBadge:
         # Colours second-level page.
         self.edit_actions = [
             ("↔  Move badge", self._begin_move, "#f3f5f7"),
+            ("◲  Resize badge", self._begin_resize, "#f3f5f7"),
             ("◉  Colours  ›", self._open_colours, "#f3f5f7"),
             ("×  Exit Context Badge", self._quit, "#ff8f8f"),
         ]
@@ -319,9 +357,12 @@ class ContextBadge:
         self.last_foreground = 0
         self.last_identity: tuple[str, str] | None = None
         self.current_app_name = "CONTEXT BADGE"
+        self.current_title = "Starting…"
         self.move_mode = False
+        self.resize_mode = False
         self.menu_open = False
         self.drag_offset = (0, 0)
+        self.resize_origin = (0, 0, self.badge_width, self.badge_height)
         self.saved_position = self._load_position()
         self._attach_owned_overlays()
         self._set_click_through(True)
@@ -358,7 +399,14 @@ class ContextBadge:
 
     def _save_position(self) -> None:
         x, y = self.root.winfo_x(), self.root.winfo_y()
-        self.config.update({"x": x, "y": y})
+        self.config.update(
+            {
+                "x": x,
+                "y": y,
+                "width": self.badge_width,
+                "height": self.badge_height,
+            }
+        )
         self._save_config()
         self.saved_position = (x, y)
 
@@ -434,8 +482,8 @@ class ContextBadge:
         user32.SetWindowLongW(self.menu_hwnd, GWL_EXSTYLE, style)
 
     def _toggle_edit_control(self) -> None:
-        if self.move_mode:
-            self._end_move()
+        if self.move_mode or self.resize_mode:
+            self._end_interaction()
         else:
             if not self.menu_open:
                 self.menu_page = "main"
@@ -613,11 +661,22 @@ class ContextBadge:
     def _begin_move(self) -> None:
         self._set_menu_open(False)
         self.move_mode = True
+        self.resize_mode = False
         self._set_click_through(False)
         # A fully transparent body has no draggable pixels, so move mode
         # temporarily reveals the selected background colour.
         self._apply_theme()
         self.canvas.configure(cursor="fleur")
+        self._update_app_label()
+
+    def _begin_resize(self) -> None:
+        self._set_menu_open(False)
+        self.move_mode = False
+        self.resize_mode = True
+        self._set_click_through(False)
+        self._apply_theme()
+        self.canvas.configure(cursor="sizing")
+        self.canvas.itemconfigure(self.resize_handle, state="normal")
         self._update_app_label()
 
     def _set_colour(self, key: str, selected: str) -> None:
@@ -637,7 +696,11 @@ class ContextBadge:
             self.background_color, self.text_color, 0.68
         )
         self.hover_color = blend_hex(self.background_color, self.text_color, 0.12)
-        transparent_now = self.background_transparent and not self.move_mode
+        transparent_now = (
+            self.background_transparent
+            and not self.move_mode
+            and not self.resize_mode
+        )
         body_colour = TRANSPARENT_KEY if transparent_now else self.background_color
         self.root.attributes(
             "-transparentcolor", TRANSPARENT_KEY if transparent_now else ""
@@ -664,7 +727,11 @@ class ContextBadge:
         self._update_edit_icon()
 
     def _set_edit_hover(self, hovered: bool) -> None:
-        transparent_now = self.background_transparent and not self.move_mode
+        transparent_now = (
+            self.background_transparent
+            and not self.move_mode
+            and not self.resize_mode
+        )
         if transparent_now:
             fill = (
                 blend_hex(self.background_color, self.text_color, 0.24)
@@ -678,21 +745,24 @@ class ContextBadge:
             )
 
     def _quit(self) -> None:
-        if self.move_mode:
+        if self.move_mode or self.resize_mode:
             self._save_position()
         self.root.destroy()
 
-    def _end_move(self) -> None:
+    def _end_interaction(self) -> None:
         self._save_position()
         self.move_mode = False
+        self.resize_mode = False
         self._apply_theme()
         self._set_click_through(True)
         self.canvas.configure(cursor="")
+        self.canvas.itemconfigure(self.resize_handle, state="hidden")
         self._update_app_label()
 
     def _update_edit_icon(self) -> None:
-        icon = "✓" if self.move_mode else ("×" if self.menu_open else "✎")
-        active = self.move_mode or self.menu_open
+        editing = self.move_mode or self.resize_mode
+        icon = "✓" if editing else ("×" if self.menu_open else "✎")
+        active = editing or self.menu_open
         self.edit_canvas.itemconfigure(
             self.edit_icon,
             text=icon,
@@ -701,8 +771,94 @@ class ContextBadge:
         self._raise_edit_control()
 
     def _update_app_label(self) -> None:
-        prefix = "MOVE MODE · " if self.move_mode else ""
-        self.canvas.itemconfigure(self.app_text, text=prefix + self.current_app_name)
+        if self.move_mode:
+            prefix = "MOVE MODE · "
+        elif self.resize_mode:
+            prefix = "RESIZE MODE · "
+        else:
+            prefix = ""
+        self._render_text(prefix + self.current_app_name, self.current_title)
+
+    @staticmethod
+    def _fit_text(
+        text: str, font: tkfont.Font, max_width: int, max_lines: int
+    ) -> str:
+        """Wrap by measured pixels and ellipsize without crossing its region."""
+        if max_width <= 0 or max_lines <= 0:
+            return ""
+        lines: list[str] = []
+        current = ""
+        overflowed = False
+        for character in text.replace("\r", ""):
+            if character == "\n":
+                lines.append(current.rstrip())
+                current = ""
+            elif not current or font.measure(current + character) <= max_width:
+                current += character
+            else:
+                lines.append(current.rstrip())
+                current = character.lstrip()
+            if len(lines) >= max_lines:
+                overflowed = bool(current) or character != text[-1:]
+                break
+        else:
+            if current or not lines:
+                lines.append(current.rstrip())
+
+        if len(lines) > max_lines:
+            lines = lines[:max_lines]
+            overflowed = True
+        if overflowed:
+            last = lines[-1] if lines else ""
+            while last and font.measure(last + "…") > max_width:
+                last = last[:-1]
+            if not last and font.measure("…") > max_width:
+                return ""
+            if lines:
+                lines[-1] = last.rstrip() + "…"
+            else:
+                lines = ["…"]
+        return "\n".join(lines)
+
+    def _render_text(self, app_label: str, title: str) -> None:
+        available_width = max(80, self.badge_width - self.EDIT_WIDTH - 44)
+        app_display = self._fit_text(app_label, self.app_font, available_width, 1)
+        line_height = max(1, self.title_font.metrics("linespace"))
+        available_height = max(line_height, self.badge_height - 44)
+        max_lines = max(1, available_height // line_height)
+        title_display = self._fit_text(
+            title, self.title_font, available_width, max_lines
+        )
+        self.canvas.itemconfigure(self.app_text, text=app_display)
+        self.canvas.itemconfigure(
+            self.title_text, text=title_display, width=available_width
+        )
+
+    def _set_badge_size(self, width: int, height: int) -> None:
+        self.badge_width = int(width)
+        self.badge_height = int(height)
+        self.canvas.configure(width=self.badge_width, height=self.badge_height)
+        self.canvas.coords(
+            self.resize_handle,
+            self.badge_width - self.EDIT_WIDTH - 10,
+            self.badge_height - 8,
+        )
+        self.edit_canvas.configure(width=self.EDIT_WIDTH, height=self.badge_height)
+        self.edit_canvas.coords(
+            self.edit_button_bg,
+            7,
+            self.badge_height // 2 - 15,
+            self.EDIT_WIDTH - 7,
+            self.badge_height // 2 + 15,
+        )
+        self.edit_canvas.coords(
+            self.edit_divider, 0, 10, 0, self.badge_height - 10
+        )
+        self.edit_canvas.coords(
+            self.edit_icon, self.EDIT_WIDTH // 2, self.badge_height // 2
+        )
+        self._set_position(self.root.winfo_x(), self.root.winfo_y())
+        self._update_app_label()
 
     def _start_drag(self, event: tk.Event) -> None:
         if self.move_mode:
@@ -710,21 +866,40 @@ class ContextBadge:
                 event.x_root - self.root.winfo_x(),
                 event.y_root - self.root.winfo_y(),
             )
+        elif self.resize_mode:
+            self.resize_origin = (
+                event.x_root,
+                event.y_root,
+                self.badge_width,
+                self.badge_height,
+            )
 
     def _drag(self, event: tk.Event) -> None:
         if not self.move_mode:
-            return
-        x = event.x_root - self.drag_offset[0]
-        y = event.y_root - self.drag_offset[1]
-        self.saved_position = (x, y)
-        self._set_position(x, y)
+            if not self.resize_mode:
+                return
+            start_x, start_y, start_width, start_height = self.resize_origin
+            width = max(
+                self.MIN_WIDTH,
+                min(self.MAX_WIDTH, start_width + event.x_root - start_x),
+            )
+            height = max(
+                self.MIN_HEIGHT,
+                min(self.MAX_HEIGHT, start_height + event.y_root - start_y),
+            )
+            self._set_badge_size(width, height)
+        else:
+            x = event.x_root - self.drag_offset[0]
+            y = event.y_root - self.drag_offset[1]
+            self.saved_position = (x, y)
+            self._set_position(x, y)
 
     def _finish_drag(self, _event: tk.Event) -> None:
-        if self.move_mode:
+        if self.move_mode or self.resize_mode:
             self._save_position()
 
     def _set_position(self, x: int, y: int) -> None:
-        self.root.geometry(f"{self.WIDTH}x{self.HEIGHT}+{x}+{y}")
+        self.root.geometry(f"{self.badge_width}x{self.badge_height}+{x}+{y}")
         user32.SetWindowPos(
             self.overlay_hwnd,
             HWND_TOPMOST,
@@ -734,10 +909,10 @@ class ContextBadge:
             0,
             SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
         )
-        edit_x = x + self.WIDTH - self.EDIT_WIDTH
+        edit_x = x + self.badge_width - self.EDIT_WIDTH
         edit_y = y
         self.edit_window.geometry(
-            f"{self.EDIT_WIDTH}x{self.HEIGHT}+{edit_x}+{edit_y}"
+            f"{self.EDIT_WIDTH}x{self.badge_height}+{edit_x}+{edit_y}"
         )
         user32.SetWindowPos(
             self.edit_hwnd,
@@ -748,8 +923,8 @@ class ContextBadge:
             0,
             SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
         )
-        menu_x = x + self.WIDTH - self.menu_width
-        menu_y = y + self.HEIGHT + 6
+        menu_x = x + self.badge_width - self.menu_width
+        menu_y = y + self.badge_height + 6
         self.menu_window.geometry(
             f"{self.menu_width}x{self.menu_height}+{menu_x}+{menu_y}"
         )
@@ -769,7 +944,7 @@ class ContextBadge:
             self._set_position(*self.saved_position)
             return
         work = monitor_work_area(foreground)
-        x = work.left + ((work.right - work.left) - self.WIDTH) // 2
+        x = work.left + ((work.right - work.left) - self.badge_width) // 2
         y = work.top + self.TOP_MARGIN
         self._set_position(x, y)
 
@@ -790,8 +965,8 @@ class ContextBadge:
             identity = (executable, title)
             if identity != self.last_identity:
                 self.current_app_name = friendly_app_name(executable).upper()
+                self.current_title = title
                 self._update_app_label()
-                self.canvas.itemconfigure(self.title_text, text=title)
                 self.last_identity = identity
             self._move_to_active_monitor(foreground)
 
