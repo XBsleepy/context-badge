@@ -30,6 +30,7 @@ except (AttributeError, OSError):
 
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 GWL_EXSTYLE = -20
+GWLP_HWNDPARENT = -8
 WS_EX_TRANSPARENT = 0x00000020
 WS_EX_TOOLWINDOW = 0x00000080
 WS_EX_LAYERED = 0x00080000
@@ -65,6 +66,8 @@ class MONITORINFO(ctypes.Structure):
 
 
 user32.GetForegroundWindow.restype = wintypes.HWND
+user32.GetWindow.argtypes = [wintypes.HWND, wintypes.UINT]
+user32.GetWindow.restype = wintypes.HWND
 user32.GetParent.argtypes = [wintypes.HWND]
 user32.GetParent.restype = wintypes.HWND
 user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
@@ -76,6 +79,10 @@ user32.GetMonitorInfoW.argtypes = [wintypes.HANDLE, ctypes.POINTER(MONITORINFO)]
 kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
 kernel32.OpenProcess.restype = wintypes.HANDLE
 kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+
+SetWindowLongPtrW = getattr(user32, "SetWindowLongPtrW", user32.SetWindowLongW)
+SetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_ssize_t]
+SetWindowLongPtrW.restype = ctypes.c_ssize_t
 
 
 FRIENDLY_APPS = {
@@ -258,6 +265,7 @@ class ContextBadge:
         self.menu_open = False
         self.drag_offset = (0, 0)
         self.saved_position = self._load_position()
+        self._attach_owned_overlays()
         self._set_click_through(True)
         self._make_edit_button_interactive()
         self._make_menu_interactive()
@@ -306,6 +314,13 @@ class ContextBadge:
         # embedded edit hit target back above the body immediately.
         if hasattr(self, "edit_hwnd"):
             self._raise_edit_control()
+
+    def _attach_owned_overlays(self) -> None:
+        # Tk does not preserve a native Win32 owner for overrideredirect
+        # Toplevel windows. Explicit ownership is the durable Z-order rule we
+        # need: owned edit/menu overlays are always drawn above the badge.
+        SetWindowLongPtrW(self.edit_hwnd, GWLP_HWNDPARENT, self.overlay_hwnd)
+        SetWindowLongPtrW(self.menu_hwnd, GWLP_HWNDPARENT, self.overlay_hwnd)
 
     def _make_edit_button_interactive(self) -> None:
         style = user32.GetWindowLongW(self.edit_hwnd, GWL_EXSTYLE)
@@ -359,6 +374,8 @@ class ContextBadge:
         self.menu_open = open_
         if open_:
             self.menu_window.deiconify()
+            # Some Tk builds recreate native state while deiconifying.
+            self._attach_owned_overlays()
             user32.ShowWindow(self.menu_hwnd, SW_SHOWNOACTIVATE)
             self.menu_window.lift()
         else:
