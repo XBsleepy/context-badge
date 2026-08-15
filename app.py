@@ -139,7 +139,7 @@ class ContextBadge:
     HEIGHT = 72
     EDIT_WIDTH = 44
     MENU_WIDTH = 184
-    MENU_HEIGHT = 46
+    MENU_ROW_HEIGHT = 42
     TOP_MARGIN = 18
     POLL_MS = 200
 
@@ -217,6 +217,11 @@ class ContextBadge:
 
         # This popover is intentionally action-based so future edit operations
         # (rename context, choose colour, add a rule) can be appended here.
+        self.edit_actions = [
+            ("↔  Move badge", self._begin_move, "#f3f5f7"),
+            ("×  Exit Context Badge", self._quit, "#ff8f8f"),
+        ]
+        self.menu_height = self.MENU_ROW_HEIGHT * len(self.edit_actions)
         self.menu_window = tk.Toplevel(self.root)
         self.menu_window.title("Context Badge Edit Menu")
         self.menu_window.overrideredirect(True)
@@ -224,28 +229,32 @@ class ContextBadge:
         self.menu_canvas = tk.Canvas(
             self.menu_window,
             width=self.MENU_WIDTH,
-            height=self.MENU_HEIGHT,
+            height=self.menu_height,
             bg="#20232a",
             highlightthickness=1,
             highlightbackground="#454b57",
             cursor="hand2",
         )
         self.menu_canvas.pack()
-        self.menu_canvas.create_text(
-            16,
-            self.MENU_HEIGHT // 2,
-            anchor="w",
-            text="↔  Move badge",
-            fill="#f3f5f7",
-            font=("Segoe UI Semibold", 11),
-        )
-        self.menu_canvas.bind("<Button-1>", lambda _event: self._begin_move())
-        self.menu_canvas.bind(
-            "<Enter>", lambda _event: self.menu_canvas.configure(bg="#2a2e37")
-        )
-        self.menu_canvas.bind(
-            "<Leave>", lambda _event: self.menu_canvas.configure(bg="#20232a")
-        )
+        for index, (label, _callback, colour) in enumerate(self.edit_actions):
+            row_top = index * self.MENU_ROW_HEIGHT
+            if index:
+                self.menu_canvas.create_line(
+                    10,
+                    row_top,
+                    self.MENU_WIDTH - 10,
+                    row_top,
+                    fill="#3b404b",
+                )
+            self.menu_canvas.create_text(
+                16,
+                row_top + self.MENU_ROW_HEIGHT // 2,
+                anchor="w",
+                text=label,
+                fill=colour,
+                font=("Segoe UI Semibold", 11),
+            )
+        self.menu_canvas.bind("<Button-1>", self._run_edit_action)
 
         # Tk creates a child drawing HWND inside a native top-level wrapper.
         # Extended window styles must be applied to the wrapper, otherwise the
@@ -391,6 +400,16 @@ class ContextBadge:
         self._update_edit_icon()
         self._update_app_label()
 
+    def _run_edit_action(self, event: tk.Event) -> None:
+        index = event.y // self.MENU_ROW_HEIGHT
+        if 0 <= index < len(self.edit_actions):
+            self.edit_actions[index][1]()
+
+    def _quit(self) -> None:
+        if self.move_mode:
+            self._save_position()
+        self.root.destroy()
+
     def _end_move(self) -> None:
         self._save_position()
         self.move_mode = False
@@ -458,7 +477,7 @@ class ContextBadge:
         menu_x = x + self.WIDTH - self.MENU_WIDTH
         menu_y = y + self.HEIGHT + 6
         self.menu_window.geometry(
-            f"{self.MENU_WIDTH}x{self.MENU_HEIGHT}+{menu_x}+{menu_y}"
+            f"{self.MENU_WIDTH}x{self.menu_height}+{menu_x}+{menu_y}"
         )
         if self.menu_open:
             user32.SetWindowPos(

@@ -28,6 +28,9 @@ is restored immediately on future launches.
 The edit menu is action-based so later versions can add operations such as
 renaming a context, choosing a colour, or creating a matching rule.
 
+Choose `× Exit Context Badge` in the edit menu to close the application
+immediately.
+
 ## Current scope
 
 - Observes every standard top-level Windows application.
