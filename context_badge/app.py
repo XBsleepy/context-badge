@@ -6,12 +6,25 @@ foreground top-level window and displays its application and title.
 
 from __future__ import annotations
 
+import atexit
 import json
 import tkinter as tk
 from tkinter import font as tkfont
 
+from .analysis_window import AnalysisWindow
+from .dwell import (
+    DEFAULT_CHECKPOINT_SECONDS,
+    DEFAULT_NOISE_SECONDS,
+    MAX_CHECKPOINT_SECONDS,
+    MAX_NOISE_SECONDS,
+    MIN_CHECKPOINT_SECONDS,
+    MIN_NOISE_SECONDS,
+    DwellObservation,
+    DwellTracker,
+)
+from .dwell_store import DwellStore
 from .layout import badge_metrics
-from .paths import config_path
+from .paths import config_path, dwell_active_path, dwell_log_path
 from .text_layout import fit_text
 from .theme import (
     COLOUR_PALETTE,
@@ -30,7 +43,9 @@ from .win32 import (
     SWP_NOMOVE,
     SWP_NOSIZE,
     SWP_SHOWWINDOW,
+    SW_HIDE,
     SW_SHOWNOACTIVATE,
+    WS_EX_APPWINDOW,
     WS_EX_LAYERED,
     WS_EX_NOACTIVATE,
     WS_EX_TOOLWINDOW,
@@ -38,6 +53,7 @@ from .win32 import (
     executable_name,
     friendly_app_name,
     monitor_work_area,
+    root_hwnd,
     set_window_owner,
     user32,
     window_title,
@@ -50,7 +66,9 @@ class ContextBadge:
     MIN_HEIGHT = 64
     MAX_WIDTH = 1000
     MAX_HEIGHT = 260
-    EDIT_WIDTH = 44
+    TAB_COUNT = 3
+    TAB_WIDTH = 46
+    EDIT_WIDTH = TAB_COUNT * TAB_WIDTH
     MAIN_MENU_WIDTH = 200
     COLOUR_MENU_WIDTH = 304
     MENU_ROW_HEIGHT = 42
@@ -58,6 +76,8 @@ class ContextBadge:
     COLOUR_ROW_HEIGHT = 54
     TOP_MARGIN = 18
     POLL_MS = 200
+    LONG_PRESS_MS = 400
+    DRAG_THRESHOLD_PX = 8
 
     def __init__(self) -> None:
         self.config = self._load_config()
@@ -75,6 +95,9 @@ class ContextBadge:
         self.background_transparent = bool(
             self.config.get("background_transparent", False)
         )
+        self.minimized = False
+        self._suppress_taskbar_map = False
+        self.hovered_tab: int | None = None
         self.badge_width = bounded_int(
             self.config.get("width"),
             self.DEFAULT_WIDTH,
@@ -87,6 +110,7 @@ class ContextBadge:
             self.MIN_HEIGHT,
             self.MAX_HEIGHT,
         )
+        self._ensure_dwell_config()
         self.hover_color = blend_hex(self.background_color, self.text_color, 0.12)
 
         self.root = tk.Tk()
@@ -112,6 +136,10 @@ class ContextBadge:
         )
         self.edit_icon_font = tkfont.Font(
             family="Segoe UI Symbol", size=self.layout.edit_icon_font_size
+        )
+        self.tab_label_font = tkfont.Font(
+            family="Segoe UI",
+            size=max(7, min(9, self.layout.app_font_size - 2)),
         )
 
         self.canvas = tk.Canvas(
@@ -151,11 +179,11 @@ class ContextBadge:
             state="hidden",
         )
 
-        # The edit control uses a separate native hit target overlaid inside the
-        # badge. Visually it is one component; technically this keeps the body
-        # click-through while the edit entry remains clickable.
+        # The control strip is a separate native hit target overlaid on the
+        # right edge. The badge body stays click-through; these three tabs
+        # remain clickable.
         self.edit_window = tk.Toplevel(self.root)
-        self.edit_window.title("Edit Context Badge")
+        self.edit_window.title("Context Badge controls")
         self.edit_window.overrideredirect(True)
         self.edit_window.attributes("-topmost", True)
         self.edit_window.configure(bg=self.background_color)
@@ -168,44 +196,19 @@ class ContextBadge:
             cursor="hand2",
         )
         self.edit_canvas.pack()
-        self.edit_button_bg = self.edit_canvas.create_oval(
-            7,
-            self.badge_height // 2 - self.layout.edit_button_radius,
-            self.EDIT_WIDTH - 7,
-            self.badge_height // 2 + self.layout.edit_button_radius,
-            fill=self.background_color,
-            outline=self.background_color,
-        )
-        self.edit_divider = self.edit_canvas.create_line(
-            0,
-            self.layout.divider_margin,
-            0,
-            self.badge_height - self.layout.divider_margin,
-            fill=self.border_color,
-        )
-        self.edit_icon = self.edit_canvas.create_text(
-            self.EDIT_WIDTH // 2,
-            self.badge_height // 2,
-            text="✎",
-            fill=self.text_color,
-            font=self.edit_icon_font,
-        )
-        self.edit_canvas.bind("<Button-1>", lambda _event: self._toggle_edit_control())
-        self.edit_canvas.bind(
-            "<Enter>", lambda _event: self._set_edit_hover(True)
-        )
-        self.edit_canvas.bind(
-            "<Leave>",
-            lambda _event: self._set_edit_hover(False),
-        )
+        self.edit_canvas.bind("<ButtonPress-1>", self._handle_control_press)
+        self.edit_canvas.bind("<B1-Motion>", self._handle_control_drag)
+        self.edit_canvas.bind("<ButtonRelease-1>", self._handle_control_release)
+        self.edit_canvas.bind("<Motion>", self._on_control_motion)
+        self.edit_canvas.bind("<Leave>", self._on_control_leave)
 
         # The first level stays compact. All appearance controls live under the
-        # Colours second-level page.
+        # Colours second-level page. Close lives on the control strip. Move is
+        # a long-press on Edit rather than a menu row.
         self.edit_actions = [
-            ("↔  Move badge", self._begin_move, "#f3f5f7"),
             ("◲  Resize badge", self._begin_resize, "#f3f5f7"),
             ("◉  Colours  ›", self._open_colours, "#f3f5f7"),
-            ("×  Exit Context Badge", self._quit, "#ff8f8f"),
+            ("◷  Time analysis", self._open_analysis, "#f3f5f7"),
         ]
         self.menu_page = "main"
         self.menu_width = self.MAIN_MENU_WIDTH
@@ -227,6 +230,18 @@ class ContextBadge:
         self.menu_canvas.bind("<Button-1>", self._handle_menu_click)
         self._render_menu()
 
+        # A normal (non-tool) window that can sit on the taskbar while the
+        # overlay is hidden. The badge itself stays TOOLWINDOW so it does not
+        # appear there during ordinary use.
+        self.taskbar_window = tk.Toplevel(self.root)
+        self.taskbar_window.title("Context Badge")
+        self.taskbar_window.geometry("240x64+-32000+-32000")
+        self.taskbar_window.resizable(False, False)
+        self.taskbar_window.protocol("WM_DELETE_WINDOW", self._quit)
+        self.taskbar_window.bind("<Map>", self._on_taskbar_map)
+        self.taskbar_window.bind("<FocusIn>", self._on_taskbar_map)
+        self.taskbar_window.withdraw()
+
         # Tk creates a child drawing HWND inside a native top-level wrapper.
         # Extended window styles must be applied to the wrapper, otherwise the
         # child may become transparent to input while the actual window stays
@@ -238,6 +253,9 @@ class ContextBadge:
         self.edit_hwnd = user32.GetParent(edit_tk_hwnd) or edit_tk_hwnd
         menu_tk_hwnd = self.menu_window.winfo_id()
         self.menu_hwnd = user32.GetParent(menu_tk_hwnd) or menu_tk_hwnd
+        taskbar_tk_hwnd = self.taskbar_window.winfo_id()
+        self.taskbar_hwnd = user32.GetParent(taskbar_tk_hwnd) or taskbar_tk_hwnd
+        self._prepare_taskbar_proxy()
         self.last_foreground = 0
         self.last_identity: tuple[str, str] | None = None
         self.current_app_name = "CONTEXT BADGE"
@@ -245,6 +263,10 @@ class ContextBadge:
         self.move_mode = False
         self.resize_mode = False
         self.menu_open = False
+        self._press_job: str | None = None
+        self._press_origin: tuple[int, int] | None = None
+        self._press_tab: int | None = None
+        self._edit_dragging = False
         self.drag_offset = (0, 0)
         self.resize_origin = (0, 0, self.badge_width, self.badge_height)
         self.saved_position = self._load_position()
@@ -262,7 +284,42 @@ class ContextBadge:
         self.menu_window.withdraw()
         if self.saved_position is not None:
             self._set_position(*self.saved_position)
+        self.dwell = DwellTracker(
+            DwellStore(dwell_log_path(), dwell_active_path()),
+            noise_seconds=self.dwell_noise_seconds,
+            checkpoint_seconds=self.dwell_checkpoint_seconds,
+        )
+        atexit.register(self.dwell.close)
+        self.analysis = AnalysisWindow(self.root, self._dwell_records)
+        self.analysis.window.update_idletasks()
+        analysis_tk = self.analysis.window.winfo_id()
+        self.analysis_hwnd = user32.GetParent(analysis_tk) or analysis_tk
         self.root.after(0, self.refresh)
+
+    def _ensure_dwell_config(self) -> None:
+        noise = bounded_int(
+            self.config.get("dwell_noise_seconds"),
+            DEFAULT_NOISE_SECONDS,
+            MIN_NOISE_SECONDS,
+            MAX_NOISE_SECONDS,
+        )
+        checkpoint = bounded_int(
+            self.config.get("dwell_checkpoint_seconds"),
+            DEFAULT_CHECKPOINT_SECONDS,
+            MIN_CHECKPOINT_SECONDS,
+            MAX_CHECKPOINT_SECONDS,
+        )
+        changed = False
+        if self.config.get("dwell_noise_seconds") != noise:
+            self.config["dwell_noise_seconds"] = noise
+            changed = True
+        if self.config.get("dwell_checkpoint_seconds") != checkpoint:
+            self.config["dwell_checkpoint_seconds"] = checkpoint
+            changed = True
+        self.dwell_noise_seconds = noise
+        self.dwell_checkpoint_seconds = checkpoint
+        if changed:
+            self._save_config()
 
     def _load_config(self) -> dict[str, object]:
         try:
@@ -314,7 +371,7 @@ class ContextBadge:
         )
         # Changing the body's extended style also changes its Z-order. Put the
         # embedded edit hit target back above the body immediately.
-        if hasattr(self, "edit_hwnd"):
+        if hasattr(self, "edit_hwnd") and not self.minimized:
             self._raise_edit_control()
 
     def _attach_owned_overlays(self) -> None:
@@ -340,6 +397,8 @@ class ContextBadge:
         )
 
     def _raise_edit_control(self) -> None:
+        if self.minimized:
+            return
         user32.SetWindowPos(
             self.edit_hwnd,
             HWND_TOPMOST,
@@ -366,14 +425,192 @@ class ContextBadge:
         style &= ~WS_EX_TRANSPARENT
         user32.SetWindowLongW(self.menu_hwnd, GWL_EXSTYLE, style)
 
-    def _toggle_edit_control(self) -> None:
-        if self.move_mode or self.resize_mode:
+    def _tab_index_at(self, x: int) -> int:
+        return min(self.TAB_COUNT - 1, max(0, x // self.TAB_WIDTH))
+
+    def _cancel_press_job(self) -> None:
+        if self._press_job is not None:
+            try:
+                self.root.after_cancel(self._press_job)
+            except tk.TclError:
+                pass
+            self._press_job = None
+
+    def _handle_control_press(self, event: tk.Event) -> None:
+        if self.resize_mode or self.move_mode:
             self._end_interaction()
+            self._press_tab = None
+            self._press_origin = None
+            return
+        index = self._tab_index_at(event.x)
+        self._press_tab = index
+        self._press_origin = (event.x_root, event.y_root)
+        self._edit_dragging = False
+        if index == 0:
+            self._cancel_press_job()
+            self._press_job = self.root.after(
+                self.LONG_PRESS_MS, self._start_edit_drag
+            )
+            return
+        self._press_tab = None
+        self._press_origin = None
+        if index == 1:
+            self._minimize_to_taskbar()
         else:
-            if not self.menu_open:
-                self.menu_page = "main"
-                self._render_menu()
-            self._set_menu_open(not self.menu_open)
+            self._quit()
+
+    def _handle_control_drag(self, event: tk.Event) -> None:
+        if self._edit_dragging:
+            self._move_to_pointer(event.x_root, event.y_root)
+            return
+        if self._press_tab != 0 or self._press_origin is None:
+            return
+        dx = event.x_root - self._press_origin[0]
+        dy = event.y_root - self._press_origin[1]
+        if dx * dx + dy * dy >= self.DRAG_THRESHOLD_PX ** 2:
+            self._start_edit_drag()
+            self._move_to_pointer(event.x_root, event.y_root)
+
+    def _handle_control_release(self, _event: tk.Event) -> None:
+        self._cancel_press_job()
+        if self._edit_dragging:
+            self._finish_edit_drag()
+            return
+        if self._press_tab == 0:
+            self._press_tab = None
+            self._press_origin = None
+            self._toggle_edit_control()
+            return
+        self._press_tab = None
+        self._press_origin = None
+
+    def _start_edit_drag(self) -> None:
+        self._cancel_press_job()
+        if self._press_origin is None or self._edit_dragging:
+            return
+        self._set_menu_open(False)
+        self._edit_dragging = True
+        self.drag_offset = (
+            self._press_origin[0] - self.root.winfo_x(),
+            self._press_origin[1] - self.root.winfo_y(),
+        )
+        try:
+            self.edit_canvas.grab_set()
+        except tk.TclError:
+            pass
+        self._set_click_through(False)
+        self.edit_canvas.configure(cursor="fleur")
+        self._draw_control_strip()
+
+    def _move_to_pointer(self, x_root: int, y_root: int) -> None:
+        x = x_root - self.drag_offset[0]
+        y = y_root - self.drag_offset[1]
+        self.saved_position = (x, y)
+        self._set_position(x, y)
+
+    def _finish_edit_drag(self) -> None:
+        self._edit_dragging = False
+        self._press_tab = None
+        self._press_origin = None
+        try:
+            self.edit_canvas.grab_release()
+        except tk.TclError:
+            pass
+        self.edit_canvas.configure(cursor="hand2")
+        self._set_click_through(True)
+        self._save_position()
+        self._draw_control_strip()
+
+    def _on_control_motion(self, event: tk.Event) -> None:
+        if self._edit_dragging or self._press_tab is not None:
+            return
+        index = self._tab_index_at(event.x)
+        if index != self.hovered_tab:
+            self.hovered_tab = index
+            self._draw_control_strip()
+
+    def _on_control_leave(self, _event: tk.Event) -> None:
+        if self._edit_dragging or self._press_job is not None:
+            return
+        if self.hovered_tab is not None:
+            self.hovered_tab = None
+            self._draw_control_strip()
+
+    def _toggle_edit_control(self) -> None:
+        if self.resize_mode:
+            self._end_interaction()
+            return
+        if not self.menu_open:
+            self.menu_page = "main"
+            self._render_menu()
+        self._set_menu_open(not self.menu_open)
+
+    def _prepare_taskbar_proxy(self) -> None:
+        style = user32.GetWindowLongW(self.taskbar_hwnd, GWL_EXSTYLE)
+        style |= WS_EX_APPWINDOW
+        style &= ~(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE)
+        user32.SetWindowLongW(self.taskbar_hwnd, GWL_EXSTYLE, style)
+        set_window_owner(self.taskbar_hwnd, GWLP_HWNDPARENT, 0)
+        user32.SetWindowPos(
+            self.taskbar_hwnd,
+            0,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+        )
+
+    def _minimize_to_taskbar(self) -> None:
+        if self.minimized:
+            return
+        if self.resize_mode:
+            self._end_interaction()
+        if self._edit_dragging:
+            self._finish_edit_drag()
+        self._set_menu_open(False)
+        self.minimized = True
+        self._suppress_taskbar_map = True
+        user32.ShowWindow(self.overlay_hwnd, SW_HIDE)
+        user32.ShowWindow(self.edit_hwnd, SW_HIDE)
+        user32.ShowWindow(self.menu_hwnd, SW_HIDE)
+        self._prepare_taskbar_proxy()
+        self.taskbar_window.deiconify()
+        self.taskbar_window.iconify()
+        self.taskbar_window.after(150, self._release_taskbar_map)
+
+    def _release_taskbar_map(self) -> None:
+        self._suppress_taskbar_map = False
+
+    def _on_taskbar_map(self, event: tk.Event) -> None:
+        if event.widget is not self.taskbar_window:
+            return
+        if self._suppress_taskbar_map or not self.minimized:
+            return
+        try:
+            state = str(self.taskbar_window.state())
+        except tk.TclError:
+            return
+        if state == "normal":
+            self._restore_from_taskbar()
+
+    def _restore_from_taskbar(self) -> None:
+        if not self.minimized:
+            return
+        self.minimized = False
+        self._suppress_taskbar_map = True
+        self.taskbar_window.withdraw()
+        self.taskbar_window.after(150, self._release_taskbar_map)
+        user32.ShowWindow(self.overlay_hwnd, SW_SHOWNOACTIVATE)
+        user32.ShowWindow(self.edit_hwnd, SW_SHOWNOACTIVATE)
+        self._set_click_through(True)
+        self._make_edit_button_interactive()
+        self._attach_owned_overlays()
+        position = self.saved_position
+        if position is None:
+            position = (self.root.winfo_x(), self.root.winfo_y())
+        self._set_position(*position)
+        self._apply_theme()
 
     def _render_menu(self) -> None:
         self.menu_canvas.delete("all")
@@ -486,6 +723,27 @@ class ContextBadge:
         self.menu_page = "colours"
         self._render_menu()
 
+    def _open_analysis(self) -> None:
+        self._set_menu_open(False)
+        x = self.root.winfo_x()
+        y = self.root.winfo_y() + self.badge_height + 8
+        self.analysis.show(x, y)
+        self.analysis.window.update_idletasks()
+        analysis_tk = self.analysis.window.winfo_id()
+        self.analysis_hwnd = user32.GetParent(analysis_tk) or analysis_tk
+        self._show_analysis_prompt()
+
+    def _dwell_records(self) -> list[dict]:
+        records = list(self.dwell.store.load_history())
+        snapshot = self.dwell.snapshot()
+        if snapshot is not None:
+            records.append(snapshot)
+        else:
+            active = self.dwell.store.load_active()
+            if active is not None:
+                records.append(active)
+        return records
+
     def _handle_menu_click(self, event: tk.Event) -> None:
         if self.menu_page == "main":
             index = event.y // self.MENU_ROW_HEIGHT
@@ -543,17 +801,6 @@ class ContextBadge:
         self._update_edit_icon()
         self._raise_edit_control()
 
-    def _begin_move(self) -> None:
-        self._set_menu_open(False)
-        self.move_mode = True
-        self.resize_mode = False
-        self._set_click_through(False)
-        # A fully transparent body has no draggable pixels, so move mode
-        # temporarily reveals the selected background colour.
-        self._apply_theme()
-        self.canvas.configure(cursor="fleur")
-        self._update_app_label()
-
     def _begin_resize(self) -> None:
         self._set_menu_open(False)
         self.move_mode = False
@@ -583,7 +830,6 @@ class ContextBadge:
         self.hover_color = blend_hex(self.background_color, self.text_color, 0.12)
         transparent_now = (
             self.background_transparent
-            and not self.move_mode
             and not self.resize_mode
         )
         body_colour = TRANSPARENT_KEY if transparent_now else self.background_color
@@ -593,44 +839,21 @@ class ContextBadge:
         self.root.configure(bg=body_colour)
         self.canvas.configure(
             bg=body_colour,
-            highlightbackground="#69a7ff" if self.move_mode else self.border_color,
+            highlightthickness=0 if transparent_now else 1,
+            highlightbackground=self.border_color,
         )
         self.canvas.itemconfigure(self.app_text, fill=self.secondary_text_color)
         self.canvas.itemconfigure(self.title_text, fill=self.text_color)
-        self.edit_window.attributes(
-            "-transparentcolor", TRANSPARENT_KEY if transparent_now else ""
-        )
-        edit_body_colour = TRANSPARENT_KEY if transparent_now else self.background_color
-        self.edit_window.configure(bg=edit_body_colour)
-        self.edit_canvas.configure(bg=edit_body_colour)
-        button_fill = self.hover_color if transparent_now else self.background_color
-        button_outline = self.border_color if transparent_now else self.background_color
-        self.edit_canvas.itemconfigure(
-            self.edit_button_bg, fill=button_fill, outline=button_outline
-        )
-        self.edit_canvas.itemconfigure(self.edit_divider, fill=self.border_color)
+        # The control strip stays opaque so Edit / Hide / Close remain findable.
+        self.edit_window.attributes("-transparentcolor", "")
+        self.edit_window.configure(bg=self.background_color)
+        self.edit_canvas.configure(bg=self.background_color)
         self._update_edit_icon()
 
-    def _set_edit_hover(self, hovered: bool) -> None:
-        transparent_now = (
-            self.background_transparent
-            and not self.move_mode
-            and not self.resize_mode
-        )
-        if transparent_now:
-            fill = (
-                blend_hex(self.background_color, self.text_color, 0.24)
-                if hovered
-                else self.hover_color
-            )
-            self.edit_canvas.itemconfigure(self.edit_button_bg, fill=fill)
-        else:
-            self.edit_canvas.configure(
-                bg=self.hover_color if hovered else self.background_color
-            )
-
     def _quit(self) -> None:
-        if self.move_mode or self.resize_mode:
+        self._cancel_press_job()
+        self.dwell.close("shutdown")
+        if self._edit_dragging or self.resize_mode:
             self._save_position()
         self.root.destroy()
 
@@ -645,20 +868,87 @@ class ContextBadge:
         self._update_app_label()
 
     def _update_edit_icon(self) -> None:
-        editing = self.move_mode or self.resize_mode
-        icon = "✓" if editing else ("×" if self.menu_open else "✎")
-        active = editing or self.menu_open
-        self.edit_canvas.itemconfigure(
-            self.edit_icon,
-            text=icon,
-            fill="#8fc0ff" if active else self.text_color,
-        )
+        self._draw_control_strip()
         self._raise_edit_control()
 
+    def _draw_control_strip(self) -> None:
+        canvas = self.edit_canvas
+        canvas.delete("all")
+        height = self.badge_height
+        editing = self.resize_mode
+        moving = self._edit_dragging
+        labels = (
+            "Edit",
+            "Hide",
+            "Close",
+        )
+        icons = (
+            "✓" if editing else ("↔" if moving else ("×" if self.menu_open else "✎")),
+            "–",
+            "×",
+        )
+        icon_colours = (
+            "#8fc0ff" if (editing or moving or self.menu_open) else self.text_color,
+            self.text_color,
+            "#ff8f8f",
+        )
+        for index in range(self.TAB_COUNT):
+            x0 = index * self.TAB_WIDTH
+            x1 = x0 + self.TAB_WIDTH
+            fill = self.background_color
+            if self.hovered_tab == index or (
+                index == 0 and (editing or moving or self.menu_open)
+            ):
+                fill = self.hover_color
+            canvas.create_rectangle(
+                x0,
+                0,
+                x1,
+                height,
+                fill=fill,
+                outline=fill,
+            )
+            if index:
+                canvas.create_line(
+                    x0,
+                    self.layout.divider_margin,
+                    x0,
+                    height - self.layout.divider_margin,
+                    fill=self.border_color,
+                )
+            cx = x0 + self.TAB_WIDTH // 2
+            has_label = height >= 56
+            icon_y = height // 2 - 8 if has_label else height // 2
+            canvas.create_text(
+                cx,
+                icon_y,
+                text=icons[index],
+                fill=icon_colours[index],
+                font=self.edit_icon_font,
+            )
+            if has_label:
+                canvas.create_text(
+                    cx,
+                    icon_y + 16,
+                    text=labels[index],
+                    fill=(
+                        icon_colours[index]
+                        if index == 2
+                        else self.secondary_text_color
+                    ),
+                    font=self.tab_label_font,
+                )
+        canvas.create_rectangle(
+            0,
+            0,
+            self.EDIT_WIDTH - 1,
+            height - 1,
+            fill="",
+            outline=self.border_color,
+        )
+
     def _update_app_label(self) -> None:
-        if self.move_mode:
-            prefix = "MOVE MODE · "
-        elif self.resize_mode:
+        if self.resize_mode:
             prefix = "RESIZE MODE · "
         else:
             prefix = ""
@@ -670,6 +960,9 @@ class ContextBadge:
         self.title_font.configure(size=self.layout.title_font_size)
         self.handle_font.configure(size=self.layout.handle_font_size)
         self.edit_icon_font.configure(size=self.layout.edit_icon_font_size)
+        self.tab_label_font.configure(
+            size=max(7, min(9, self.layout.app_font_size - 2))
+        )
         self.canvas.coords(
             self.app_text, self.layout.padding_x, self.layout.app_y
         )
@@ -681,23 +974,7 @@ class ContextBadge:
             self.badge_width - self.EDIT_WIDTH - self.layout.handle_inset_x,
             self.badge_height - self.layout.handle_inset_y,
         )
-        self.edit_canvas.coords(
-            self.edit_button_bg,
-            7,
-            self.badge_height // 2 - self.layout.edit_button_radius,
-            self.EDIT_WIDTH - 7,
-            self.badge_height // 2 + self.layout.edit_button_radius,
-        )
-        self.edit_canvas.coords(
-            self.edit_divider,
-            0,
-            self.layout.divider_margin,
-            0,
-            self.badge_height - self.layout.divider_margin,
-        )
-        self.edit_canvas.coords(
-            self.edit_icon, self.EDIT_WIDTH // 2, self.badge_height // 2
-        )
+        self._draw_control_strip()
 
     def _render_text(self, app_label: str, title: str) -> None:
         available_width = max(
@@ -730,12 +1007,7 @@ class ContextBadge:
         self._update_app_label()
 
     def _start_drag(self, event: tk.Event) -> None:
-        if self.move_mode:
-            self.drag_offset = (
-                event.x_root - self.root.winfo_x(),
-                event.y_root - self.root.winfo_y(),
-            )
-        elif self.resize_mode:
+        if self.resize_mode:
             self.resize_origin = (
                 event.x_root,
                 event.y_root,
@@ -744,30 +1016,32 @@ class ContextBadge:
             )
 
     def _drag(self, event: tk.Event) -> None:
-        if not self.move_mode:
-            if not self.resize_mode:
-                return
-            start_x, start_y, start_width, start_height = self.resize_origin
-            width = max(
-                self.MIN_WIDTH,
-                min(self.MAX_WIDTH, start_width + event.x_root - start_x),
-            )
-            height = max(
-                self.MIN_HEIGHT,
-                min(self.MAX_HEIGHT, start_height + event.y_root - start_y),
-            )
-            self._set_badge_size(width, height)
-        else:
-            x = event.x_root - self.drag_offset[0]
-            y = event.y_root - self.drag_offset[1]
-            self.saved_position = (x, y)
-            self._set_position(x, y)
+        if self._edit_dragging:
+            self._move_to_pointer(event.x_root, event.y_root)
+            return
+        if not self.resize_mode:
+            return
+        start_x, start_y, start_width, start_height = self.resize_origin
+        width = max(
+            self.MIN_WIDTH,
+            min(self.MAX_WIDTH, start_width + event.x_root - start_x),
+        )
+        height = max(
+            self.MIN_HEIGHT,
+            min(self.MAX_HEIGHT, start_height + event.y_root - start_y),
+        )
+        self._set_badge_size(width, height)
 
     def _finish_drag(self, _event: tk.Event) -> None:
-        if self.move_mode or self.resize_mode:
+        if self._edit_dragging:
+            self._finish_edit_drag()
+            return
+        if self.resize_mode:
             self._save_position()
 
     def _set_position(self, x: int, y: int) -> None:
+        if self.minimized:
+            return
         self.root.geometry(f"{self.badge_width}x{self.badge_height}+{x}+{y}")
         user32.SetWindowPos(
             self.overlay_hwnd,
@@ -809,6 +1083,8 @@ class ContextBadge:
             )
 
     def _move_to_active_monitor(self, foreground: int) -> None:
+        if self.minimized:
+            return
         if self.saved_position is not None:
             self._set_position(*self.saved_position)
             return
@@ -817,12 +1093,47 @@ class ContextBadge:
         y = work.top + self.TOP_MARGIN
         self._set_position(x, y)
 
+    def _analysis_is_foreground(self, hwnd: int) -> bool:
+        if not hwnd or not getattr(self, "analysis", None):
+            return False
+        try:
+            inner = int(self.analysis.window.winfo_id())
+        except tk.TclError:
+            return False
+        outer = user32.GetParent(inner) or inner
+        self.analysis_hwnd = outer
+        focused = root_hwnd(hwnd)
+        return focused in (root_hwnd(inner), root_hwnd(outer), outer, inner)
+
+    def _show_analysis_prompt(self) -> None:
+        identity = ("context_badge", "Time analysis")
+        title = self.analysis.prompt_text()
+        if identity != self.last_identity or self.current_title != title:
+            self.current_app_name = "TIME ANALYSIS"
+            self.current_title = title
+            self._update_app_label()
+            self.last_identity = identity
+
     def refresh(self) -> None:
         foreground = user32.GetForegroundWindow()
+        if foreground and self._analysis_is_foreground(foreground):
+            self._show_analysis_prompt()
+            self.dwell.observe(
+                DwellObservation(
+                    executable="context_badge",
+                    app="Context Badge",
+                    title="Time analysis",
+                )
+            )
+            if self.last_foreground:
+                self._move_to_active_monitor(self.last_foreground)
+            self.root.after(self.POLL_MS, self.refresh)
+            return
         if foreground and foreground not in (
             self.overlay_hwnd,
             self.edit_hwnd,
             self.menu_hwnd,
+            self.taskbar_hwnd,
         ):
             self.last_foreground = foreground
         else:
@@ -837,6 +1148,13 @@ class ContextBadge:
                 self.current_title = title
                 self._update_app_label()
                 self.last_identity = identity
+            self.dwell.observe(
+                DwellObservation(
+                    executable=executable,
+                    app=friendly_app_name(executable),
+                    title=title,
+                )
+            )
             self._move_to_active_monitor(foreground)
 
         self.root.after(self.POLL_MS, self.refresh)
@@ -846,6 +1164,7 @@ class ContextBadge:
             self.root.mainloop()
         except KeyboardInterrupt:
             # Ctrl+C is the Step 1 exit mechanism. Avoid printing a traceback.
+            self.dwell.close("shutdown")
             self.root.destroy()
 
 

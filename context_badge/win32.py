@@ -22,6 +22,7 @@ GWL_EXSTYLE = -20
 GWLP_HWNDPARENT = -8
 WS_EX_TRANSPARENT = 0x00000020
 WS_EX_TOOLWINDOW = 0x00000080
+WS_EX_APPWINDOW = 0x00040000
 WS_EX_LAYERED = 0x00080000
 WS_EX_NOACTIVATE = 0x08000000
 HWND_TOPMOST = -1
@@ -30,8 +31,10 @@ SWP_NOMOVE = 0x0002
 SWP_NOACTIVATE = 0x0010
 SWP_FRAMECHANGED = 0x0020
 SWP_SHOWWINDOW = 0x0040
+SW_HIDE = 0
 SW_SHOWNOACTIVATE = 4
 MONITOR_DEFAULTTONEAREST = 0x00000002
+GA_ROOT = 2
 
 
 class RECT(ctypes.Structure):
@@ -63,6 +66,8 @@ user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintyp
 user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
 user32.MonitorFromWindow.restype = wintypes.HANDLE
 user32.GetMonitorInfoW.argtypes = [wintypes.HANDLE, ctypes.POINTER(MONITORINFO)]
+user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+user32.GetAncestor.restype = wintypes.HWND
 kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
 kernel32.OpenProcess.restype = wintypes.HANDLE
 kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
@@ -110,6 +115,14 @@ def executable_name(hwnd: int) -> str:
 
 def friendly_app_name(executable: str) -> str:
     return FRIENDLY_APPS.get(executable.lower(), os.path.splitext(executable)[0].title())
+
+
+def root_hwnd(hwnd: int) -> int:
+    """Return the top-level ancestor for a window or child HWND."""
+    if not hwnd:
+        return 0
+    ancestor = user32.GetAncestor(hwnd, GA_ROOT)
+    return int(ancestor or hwnd)
 
 
 def monitor_work_area(hwnd: int) -> RECT:

@@ -7,6 +7,11 @@ All notable changes to Context Badge are documented here.
 ### Added
 
 - Application label and window title now scale with the badge height while wrapping still follows the current width.
+- Foreground dwell tracking with configurable noise/checkpoint intervals and dual-backup local storage.
+- In-app Time analysis window with per-app totals and a scrollable day timeline.
+- Colour-bar zoom and pan so a day report can be inspected by time window.
+- Right-edge Edit / Hide / Close tabs; Hide minimizes the overlay to the taskbar.
+- Long-press Edit to drag the badge; a short click still opens the menu.
 
 ## [0.1.0] - 2026-08-16
 
