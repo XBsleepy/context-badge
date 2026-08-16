@@ -4,6 +4,10 @@ All notable changes to Context Badge are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- README leads with the AI-coding context-switch story, badge screenshots, and Time analysis as a crude local report (LLM summaries called out as future work). Install documents the v0.2.0 `.exe` and that no system Python is required.
+
 ## [0.2.0] - 2026-08-16
 
 ### Added

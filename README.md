@@ -1,50 +1,64 @@
 # Context Badge
 
-Context Badge is a small, persistent Windows overlay that shows which desktop
-window you are currently using. It stays above normal windows without taking
-keyboard focus and keeps the rest of the badge click-through.
+AI coding makes it cheap to open another workspace, another agent chat, another
+browser tab. The expensive part is coming back. After a few hours of hopping
+across Cursor windows, docs, and chats, the last page's intent is gone — and
+that context-switch tax is a reliable way to burn out.
 
-The project is an early foundation for a richer context reminder: browser tabs,
-VS Code workspaces, research sessions, LeetCode windows, writing projects, and
-other user-defined contexts.
+So I vibed this: a longer always-on-top badge that tracks the page you are
+actually looking at. Pin a short description and a todo list to *this* page.
+Next time you land here, the work is still on the glass. Less reloading of
+context. Easier to stay focused.
 
-## Features
+![A floating Context Badge over Cursor, with a page note and a todo for the current task](docs/images/badge-page-todos.png)
 
-- Observes the active top-level window across standard Windows applications.
-- Displays the application/context label separately from the window title.
-- Wraps and ellipsizes long titles without overlapping the label.
-- Remains always on top and follows the active monitor until manually placed.
-- Click-through follows Fix: the overlay captures the cursor until it is locked.
-- Supports persistent position and size.
-- Scales label, title, and list type with the badge height.
-- Records how long the foreground app, window, or page stays on top.
-- Includes an in-app colour palette for badge background, list background, text, and border.
-- Treats transparent as a background fill, same as the solid swatches.
-- Can be minimized to the taskbar from the Hide tab.
-- Keeps a per-tab todo list, shown from the List tab.
-- Stores preferences locally and has no runtime dependencies.
+The badge follows the foreground window. In a browser it keys off the tab and
+URL when it can; in Cursor it keys off the workspace (or the current Agents
+chat). The list belongs to that page, not to a global dump of every thought
+you had today.
 
-## Requirements
+![The badge over AGENTS.md, with a workspace note and a checked-off list item](docs/images/badge-workspace-notes.png)
 
-- Windows 10 or Windows 11
-- Python 3.11 or newer when running from source
+Because the overlay already knows which app and page you are on, it is a short
+step to asking: *what did I actually do today, and how did the hours split?*
+Context Badge records foreground stays and opens a day report — app totals, a
+colour ribbon, a timeline of switches.
 
-Context Badge currently uses Win32 APIs directly and does not support macOS or
-Linux. The packaged `.exe` embeds Python, so end users do not need a separate
-interpreter.
+The analysis is still crude. It will show you that an afternoon was 200
+switches across ten apps; it will not yet write a narrative of the work. A
+later pass can hang an LLM on this log for daily summaries. For now the point
+is visibility: time allocation you can see, not a vibe you reconstruct at
+midnight.
 
-## Quick start
+![Time analysis for a full day: hours tracked, app share, switch count, and a fragmented day ribbon](docs/images/time-day.png)
 
-### Windows executable
+![A closer session: most of the time in Cursor, with a timeline of files, chats, and other apps](docs/images/time-session.png)
+
+## Install
+
+Windows 10 or 11. Nothing else.
+
+### Executable (recommended)
 
 Download [`ContextBadge.exe`](https://github.com/XBsleepy/context-badge/releases)
-from the latest release, then double-click it. No Python install is required.
+from the [latest GitHub Release](https://github.com/XBsleepy/context-badge/releases/tag/v0.2.0)
+and double-click it.
 
-The executable is a single file. Stop the app with the Close tab.
+You do **not** need a system Python, Anaconda, pip, or any other runtime. The
+release is a single-file PyInstaller build: it already embeds Python and
+Tkinter. It talks to APIs that ship with Windows (`user32`, UI Automation).
+There is no installer and no extra Visual C++ package to hunt down.
+
+Windows SmartScreen may warn on the first launch because the binary is not
+code-signed. Choose *More info* → *Run anyway* if you trust the release.
+
+Stop the app with the `Close` tab. Preferences, dwell history, and lists live
+under `%LOCALAPPDATA%\Context Badge` so they survive the temp folder PyInstaller
+uses at runtime.
 
 ### From source
 
-Clone the repository and run:
+Python 3.11+ is required only if you run the checkout, not the `.exe`:
 
 ```powershell
 git clone https://github.com/XBsleepy/context-badge.git
@@ -52,156 +66,105 @@ cd context-badge
 .\run.ps1
 ```
 
-Alternatively:
+Or:
 
 ```powershell
 python -m context_badge
 ```
 
-Stop the app with the Close tab, or press `Ctrl+C` in the terminal that launched
-it.
+Stop with the `Close` tab, or `Ctrl+C` in the terminal that launched it.
 
 ## Using the badge
 
-Four tabs sit on the right edge: `Menu` opens the function menu, `List` shows
-or hides the todo panel, `Hide` minimizes the badge to the taskbar, and
-`Close` quits. The rest of the badge remains click-through during normal use.
-Long-press `Menu` to drag the badge.
+Four tabs sit on the right edge: `Menu`, `List`, `Hide`, `Close`. Drag the
+badge body to move it. Long-press `Menu` is a second handle; a short click
+opens the function menu.
 
-### Move
+### Fix
 
-Drag anywhere on the badge body to move it. Long-press the `Menu` tab still
-works as a second handle. A short click on `Menu` opens the menu. Choose
-`Fix` to lock the overlay: the body becomes click-through, Menu / List /
-Hide / Close are replaced by a single right-edge `Unlock` tab, and dragging
-stops. Click `Unlock` to restore the four tabs and movement. Click-through
-follows `Fix`, not the transparent-background swatch. The setting is
+`Menu` → `Fix` locks the overlay. The body becomes click-through, dragging
+stops, and the four tabs collapse to a single `Unlock` on the right edge.
+Click `Unlock` to restore them. Click-through follows `Fix` only — a
+transparent background does not by itself pass clicks through. The lock is
 remembered as `position_locked`.
 
 ### Resize
 
-Choose `Resize badge`, drag the badge body to change its width and height, and
-click the check mark to save. The supported range is 280–1000 px wide and
-64–260 px high. Extra width is wrapping room. Extra height grows type only
-part-way so more of the window title can wrap onto additional lines. List
-type and row height follow the same height scale.
+`Resize badge`, then drag the body. Range: 280–1000 px wide, 64–260 px high.
+Extra width is wrapping room. Extra height grows type only part-way so more of
+the window title can wrap onto additional lines. List type and row height
+follow the same scale.
 
 ### Colours
 
-Open `Colours` to configure:
+`Colours` configures:
 
-- Background, including a crossed-out transparent swatch at the same level as
-  the solid colours
-- List panel background, with the same palette and transparent swatch
+- Badge background (including a crossed-out **transparent** swatch)
+- List panel background (same palette, independent of the badge)
 - Text
 - Border
 
-Transparent is stored as the fill value `transparent`, not a separate flag.
-Old `background_transparent` preferences are migrated on launch. Resize mode
-temporarily uses the default solid fill so a transparent badge stays easy to
-grab. List fill is independent of the badge fill. The cursor still hits the
-overlay until `Fix` is on; transparent colour does not by itself pass clicks
-through.
+Transparent is a fill value (`transparent`), not a separate flag. Old
+`background_transparent` preferences are migrated on launch.
+
+### List
+
+`List` shows or hides a todo panel under the badge. Hidden, it takes no space.
+
+- Browsers: keyed by page URL when it can be read, otherwise the cleaned tab title
+- Cursor / VS Code: keyed by workspace, so file hops in the same repo keep one list
+- Cursor Agents: keyed by the current chat title
+
+Rows can be checked, edited, added, and deleted. Checked items stay. The
+header is an editable note; if it is empty, the current window or page name is
+only a placeholder and is not stored. Empty lists with no note are not written
+to disk.
 
 ### Time analysis
 
-Context Badge records how long the current top-level window stays in the
-foreground. Browser titles drop Edge/Chrome chrome such as `和另外 N 个页面` and
-the profile suffix. When UI Automation is available, the selected tab name and
-address-bar URL are used instead of the raw window title. Editors such as
-Cursor are grouped by workspace (`file · workspace` on the badge; the todo list
-keys off the workspace). The Cursor Agents window uses the current chat title.
+Foreground stays shorter than `dwell_noise_seconds` (default 8) are treated as
+noise. Once a stay crosses that threshold it is checkpointed, then refreshed
+every `dwell_checkpoint_seconds` (default 60) so a crash still has a recent
+value.
 
-Stays shorter than `dwell_noise_seconds` (default 8) are treated as noise and
-are not written. Once a stay crosses that threshold, the in-progress duration
-is checkpointed, then refreshed every `dwell_checkpoint_seconds` (default 60)
-so an unexpected shutdown still has a recent value to recover.
-
-Both knobs live in the ordinary preferences JSON and are created with defaults
-on first launch if they are missing:
-
-```json
-{
-  "dwell_noise_seconds": 8,
-  "dwell_checkpoint_seconds": 60
-}
-```
-
-History is an append-only JSONL file with a sibling `.bak` copy. The open
-session is a small JSON file with its own `.bak`. If a write is interrupted,
-the reader skips a truncated last line and falls back to the last good backup.
-
-Choose `Time analysis` to open a separate day report. It shows:
+`Time analysis` opens a separate day report:
 
 - App totals for the selected date, ranked by dwell time
-- A compact 24-hour ribbon, with consecutive same-app stays merged
-- A scrollable action timeline of each recorded switch
+- A compact 24-hour ribbon (consecutive same-app stays merged)
+- A scrollable timeline of each recorded switch
 
-Use `‹` / `›` to change date, or `Today` to jump back. Scroll the colour bar to
-zoom into a stretch of the day (for example 06:00–09:00), drag to pan, and
-double-click to return to the full day. Apps and the action list follow the
-visible window. The timeline list stays scrollable for busy days.
+`‹` / `›` change date; `Today` jumps back. Scroll the colour bar to zoom, drag
+to pan, double-click to reset. This is an early, local report — not an AI
+summary.
 
-### Tab lists
+### Hide and Close
 
-`List` on the right strip shows or hides a todo panel under the badge. Hidden,
-the panel takes no space. Shown, it lists todos for the current tab or page.
+`Hide` minimizes the badge to the taskbar. Dwell tracking keeps running.
+`Close` quits.
 
-Browser lists are keyed by the page URL when it can be read, otherwise by the
-cleaned tab title. Cursor/VS Code lists are keyed by workspace, so switching
-files in the same repo keeps the same list. Cursor Agents lists follow the
-current chat title. The badge still shows a short label (tab name, `file ·
-workspace`, or chat title).
+## Privacy
 
-Rows can be checked off, edited, added, and deleted. Checked items stay in the
-list. The header is an editable note for extra context; if it is empty, the
-current window or page name is shown as a placeholder and is not stored. Empty
-lists with no note are not written to disk. Show/hide is remembered in
-preferences as `list_bar_expanded`.
+When you run from source, files sit beside the checkout
+(`.context-badge.json`, `.context-badge-dwell.jsonl`,
+`.context-badge-lists.json`, plus `.bak` copies). The packaged `.exe` uses the
+same data under `%LOCALAPPDATA%\Context Badge`.
 
-Lists are a JSON file with a sibling `.bak` copy, using the same crash-safe
-write path as the other local stores: `.context-badge-lists.json` beside the
-source checkout, or `lists.json` under `%LOCALAPPDATA%\Context Badge` when
-packaged.
+The app reads the foreground window handle, executable name, visible title,
+and (when available) UI Automation tab names, address-bar URLs, and Cursor
+chat titles. It stores local dwell records and per-tab todos derived from
+those values. It does **not** capture screenshots, record keystrokes, or send
+data over the network.
 
-### Hide
+## Limitations
 
-`Hide` minimizes Context Badge to the taskbar, like a normal window. Click the
-taskbar entry to restore it. Dwell tracking keeps running while it is minimized.
-
-### Close
-
-The `Close` tab quits the app immediately.
-
-## Preferences and privacy
-
-When you run from source, preferences are stored in `.context-badge.json`
-beside the repository. The packaged Windows executable stores the same settings
-in `%LOCALAPPDATA%\Context Badge\preferences.json`. Dwell history uses
-`.context-badge-dwell.jsonl` and `.context-badge-dwell-active.json` in the
-source checkout, or `dwell.jsonl` and `dwell-active.json` under
-`%LOCALAPPDATA%\Context Badge` when packaged. Per-tab lists use
-`.context-badge-lists.json` or `lists.json` in those same locations. All of
-these files are local only and contain UI preferences plus foreground app/page
-titles, optional page URLs, durations, and optional todo text.
-
-The current version reads the foreground window handle, executable name,
-visible native window title, and (when available) UI Automation tab names,
-address-bar URLs, and Cursor chat titles. It stores local dwell records and
-per-tab todo lists derived from those values. It does not capture screenshots,
-record keystrokes, or send data over the network.
-
-## Current limitations
-
-- Recognition is based on the process, native window title, and UI Automation
-  tab/URL/chat hints when they are available.
-- Semantic labels such as `LeetCode` and `RSI Research` are not implemented yet.
-- Full-screen applications may choose to render above third-party overlays.
-- Dwell records are stored locally; the first in-app report covers one day at a time.
+- Recognition is process + native title + UI Automation hints when they exist.
+- Semantic labels such as `LeetCode` or `RSI Research` are not implemented yet.
+- Full-screen apps may render above third-party overlays.
+- The day report is one date at a time; there is no LLM summary yet.
 
 ## Development
 
-The codebase uses only the Python standard library:
+Stdlib only: Tkinter, ctypes/Win32, local JSON/JSONL. No runtime packages.
 
 ```text
 context_badge/
@@ -221,36 +184,30 @@ context_badge/
 └── win32.py            Windows API boundary
 ```
 
-Run checks with:
-
 ```powershell
 python -m unittest discover -s tests -v
 python -m compileall -q app.py context_badge
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) for
-contribution and agent guidelines. The turn-level development log is
-[docs/dev-log.md](docs/dev-log.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md). The
+turn-level log is [docs/dev-log.md](docs/dev-log.md).
 
 ## Packaging
-
-Build a windowed, single-file Windows executable with:
 
 ```powershell
 .\build.ps1
 ```
 
-The result is `dist\ContextBadge.exe`. Double-click it to start Context Badge
-without a console window. PyInstaller is a build-time dependency only; the
-runtime still uses the Python standard library.
+Produces `dist\ContextBadge.exe`. PyInstaller is a **build-time** dependency
+only. End users of the `.exe` still do not install Python.
 
 ## Roadmap
 
-- User-defined rules mapping applications and title patterns to stable contexts
-- Browser extension support for URLs and in-window tab changes
-- VS Code extension support for workspaces and active files
+- User-defined rules mapping apps and title patterns to stable contexts
+- LLM daily / weekly work summaries on top of the local dwell log
+- Browser and VS Code extensions for URLs, workspaces, and active files
 - A richer in-app colour picker
-- System tray integration and launch-at-login support
+- System tray and launch-at-login
 
 ## License
 
