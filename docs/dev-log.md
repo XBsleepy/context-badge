@@ -141,3 +141,51 @@ Execute the selected diff-tab commit-and-push action.
 ### 助手
 
 已在 `feat/time-analysis` 提交并推送报告页优化、徽章提示，以及色带缩放/平移。
+
+---
+
+## Turn 11 · 2026-08-16 18:37
+
+### 用户
+
+在color tab下面新增一个hidden选项，background跑
+
+### 助手
+
+Colours 页底部加了 Hidden 开关。打开后徽章背景和边框都去掉，只留下文字和右侧编辑按钮；Move / Resize 时仍会暂时把背景显示出来方便拖动。和原来那个划掉的背景色块是同一项设置。
+
+---
+
+## Turn 12 · 2026-08-16 19:13
+
+### 用户
+
+我发现这样的设计不太实用，你看看这样改:edit,all hidden（最小化),关闭， 放三个并列标签，color那里的hidde按钮去掉
+
+### 助手
+
+右侧改成三个并列标签：Edit 打开菜单，Hide 最小化整块徽章（只留这条控制栏，再点变成 Show），Close 直接退出。Colours 页的 Hidden 开关已去掉；透明背景仍用原来那个划掉的色块。
+
+---
+
+## Turn 13 · 2026-08-16 19:20
+
+### 用户
+
+hidden不是这么hidden,是直接类似别的窗口的，最小化的功能
+
+### 助手
+
+Hide 改成真正的窗口最小化：点下去整块徽章（含三个标签）都会离开桌面，进任务栏；再点任务栏上的 Context Badge 即可还原。停留计时在最小化期间继续跑。
+
+---
+
+## Turn 14 · 2026-08-16 19:35
+
+### 用户
+
+Execute the selected diff-tab commit-and-push action.
+
+### 助手
+
+已在 `feat/time-analysis` 提交并推送右侧 Edit / Hide / Close 标签，以及 Hide 最小化到任务栏。

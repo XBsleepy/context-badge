@@ -19,7 +19,8 @@ other user-defined contexts.
 - Scales label and title type with the badge height.
 - Records how long the foreground app, window, or page stays on top.
 - Includes an in-app colour palette for background, text, and border.
-- Supports a transparent background while keeping the edit control available.
+- Supports a transparent background while keeping the control strip available.
+- Can be minimized to the taskbar from the Hide tab.
 - Stores preferences locally and has no runtime dependencies.
 
 ## Requirements
@@ -38,7 +39,7 @@ interpreter.
 Download [`ContextBadge.exe`](https://github.com/XBsleepy/context-badge/releases)
 from the latest release, then double-click it. No Python install is required.
 
-The executable is a single file. Stop the app from its Edit menu.
+The executable is a single file. Stop the app with the Close tab.
 
 ### From source
 
@@ -56,12 +57,13 @@ Alternatively:
 python -m context_badge
 ```
 
-Stop the app from its Edit menu, or press `Ctrl+C` in the terminal that launched
+Stop the app with the Close tab, or press `Ctrl+C` in the terminal that launched
 it.
 
 ## Using the badge
 
-The pencil on the right edge opens the Edit menu. The rest of the badge remains
+Three tabs sit on the right edge: `Edit` opens the menu, `Hide` minimizes the
+badge to the taskbar, and `Close` quits. The rest of the badge remains
 click-through during normal use.
 
 ### Move
@@ -126,9 +128,14 @@ zoom into a stretch of the day (for example 06:00–09:00), drag to pan, and
 double-click to return to the full day. Apps and the action list follow the
 visible window. The timeline list stays scrollable for busy days.
 
-### Exit
+### Hide
 
-Choose `Exit Context Badge` to close the app immediately.
+`Hide` minimizes Context Badge to the taskbar, like a normal window. Click the
+taskbar entry to restore it. Dwell tracking keeps running while it is minimized.
+
+### Close
+
+The `Close` tab quits the app immediately.
 
 ## Preferences and privacy
 
