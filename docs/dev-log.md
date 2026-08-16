@@ -400,3 +400,49 @@ Colours 里新增 List 行，待办面板背景单独选，也可以透明，不
 ### 助手
 
 已提交并推送到 `feat/tab-todos`，打开针对 `main` 的 PR，版本记为 0.2.0。本地打包生成 `dist\ContextBadge.exe`。
+
+---
+
+## Turn 30 · 2026-08-16 21:42
+
+### 用户
+
+新package push
+
+### 助手
+
+已发布 GitHub Release **v0.2.0**，并附上 `ContextBadge.exe`。
+
+https://github.com/XBsleepy/context-badge/releases/tag/v0.2.0
+
+---
+
+## Turn 31 · 2026-08-16 22:00
+
+### 用户
+
+参考这几个作为宣传图，重写readme,我的核心是说:
+1. 在如今AI coding时代，大家很容易在多个工作区切换，由此可能导致上下文切换开销很burnout。
+2. 所以我vibe了这个工具，主要功能:用一个更长的badge来跟踪当前你在看的页面好处是:1.你可以记本页面todos/description,从而减少上下文切换成本，easier to focus。
+3. 由于这样的任务特性，很自然地我们可以去追踪每日电脑的使用情况，从而能记录自己今天到底做了啥，在各个任务之间的时间分配，提高时间利用率。（并说当前的分析还很粗陋，以后可以加上llm做工作总结等)
+4.然后才是介绍如何使用，要把exe的release也写进去。另外，请你判断一下如果是打开exe，是否还需要一些windows的python等环境依赖。
+
+### 助手
+
+README 已按这个叙事重写：先讲 AI coding 下的上下文切换 burnout，再讲更长的 badge + 本页 todos/description，然后才是每日使用追踪（并写明当前分析还很粗），最后才是安装与用法。四张宣传图放在 `docs/images/`。
+
+打开 `ContextBadge.exe` **不需要** 系统 Python、Anaconda 或 pip。Release 是 PyInstaller 单文件，已经把 Python 和 Tkinter 打进去了；Windows 10/11 自带的 API 就够。从源码跑才需要本机 Python 3.11+。
+
+https://github.com/XBsleepy/context-badge/releases/tag/v0.2.0
+
+---
+
+## Turn 32 · 2026-08-16 22:00
+
+### 用户
+
+Execute the selected diff-tab commit-and-push action.
+
+### 助手
+
+已提交并推送到 `feat/tab-todos`：README 叙事重写、四张宣传图、CHANGELOG 与开发日志。
