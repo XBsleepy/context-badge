@@ -6,12 +6,24 @@ foreground top-level window and displays its application and title.
 
 from __future__ import annotations
 
+import atexit
 import json
 import tkinter as tk
 from tkinter import font as tkfont
 
+from .dwell import (
+    DEFAULT_CHECKPOINT_SECONDS,
+    DEFAULT_NOISE_SECONDS,
+    MAX_CHECKPOINT_SECONDS,
+    MAX_NOISE_SECONDS,
+    MIN_CHECKPOINT_SECONDS,
+    MIN_NOISE_SECONDS,
+    DwellObservation,
+    DwellTracker,
+)
+from .dwell_store import DwellStore
 from .layout import badge_metrics
-from .paths import config_path
+from .paths import config_path, dwell_active_path, dwell_log_path
 from .text_layout import fit_text
 from .theme import (
     COLOUR_PALETTE,
@@ -87,6 +99,7 @@ class ContextBadge:
             self.MIN_HEIGHT,
             self.MAX_HEIGHT,
         )
+        self._ensure_dwell_config()
         self.hover_color = blend_hex(self.background_color, self.text_color, 0.12)
 
         self.root = tk.Tk()
@@ -262,7 +275,38 @@ class ContextBadge:
         self.menu_window.withdraw()
         if self.saved_position is not None:
             self._set_position(*self.saved_position)
+        self.dwell = DwellTracker(
+            DwellStore(dwell_log_path(), dwell_active_path()),
+            noise_seconds=self.dwell_noise_seconds,
+            checkpoint_seconds=self.dwell_checkpoint_seconds,
+        )
+        atexit.register(self.dwell.close)
         self.root.after(0, self.refresh)
+
+    def _ensure_dwell_config(self) -> None:
+        noise = bounded_int(
+            self.config.get("dwell_noise_seconds"),
+            DEFAULT_NOISE_SECONDS,
+            MIN_NOISE_SECONDS,
+            MAX_NOISE_SECONDS,
+        )
+        checkpoint = bounded_int(
+            self.config.get("dwell_checkpoint_seconds"),
+            DEFAULT_CHECKPOINT_SECONDS,
+            MIN_CHECKPOINT_SECONDS,
+            MAX_CHECKPOINT_SECONDS,
+        )
+        changed = False
+        if self.config.get("dwell_noise_seconds") != noise:
+            self.config["dwell_noise_seconds"] = noise
+            changed = True
+        if self.config.get("dwell_checkpoint_seconds") != checkpoint:
+            self.config["dwell_checkpoint_seconds"] = checkpoint
+            changed = True
+        self.dwell_noise_seconds = noise
+        self.dwell_checkpoint_seconds = checkpoint
+        if changed:
+            self._save_config()
 
     def _load_config(self) -> dict[str, object]:
         try:
@@ -630,6 +674,7 @@ class ContextBadge:
             )
 
     def _quit(self) -> None:
+        self.dwell.close("shutdown")
         if self.move_mode or self.resize_mode:
             self._save_position()
         self.root.destroy()
@@ -837,6 +882,13 @@ class ContextBadge:
                 self.current_title = title
                 self._update_app_label()
                 self.last_identity = identity
+            self.dwell.observe(
+                DwellObservation(
+                    executable=executable,
+                    app=friendly_app_name(executable),
+                    title=title,
+                )
+            )
             self._move_to_active_monitor(foreground)
 
         self.root.after(self.POLL_MS, self.refresh)
@@ -846,6 +898,7 @@ class ContextBadge:
             self.root.mainloop()
         except KeyboardInterrupt:
             # Ctrl+C is the Step 1 exit mechanism. Avoid printing a traceback.
+            self.dwell.close("shutdown")
             self.root.destroy()
 
 

@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
 .context-badge.json
+.context-badge-dwell*
 .venv/
 .venv-build/
 build/

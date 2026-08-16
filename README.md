@@ -17,6 +17,7 @@ other user-defined contexts.
 - Preserves click-through behaviour outside edit modes.
 - Supports persistent position and size.
 - Scales label and title type with the badge height.
+- Records how long the foreground app, window, or page stays on top.
 - Includes an in-app colour palette for background, text, and border.
 - Supports a transparent background while keeping the edit control available.
 - Stores preferences locally and has no runtime dependencies.
@@ -89,6 +90,31 @@ The palette is rendered inside the app; no system colour dialog is opened. A
 transparent badge temporarily restores its selected background in Move and
 Resize modes so it remains easy to manipulate.
 
+### Time analysis
+
+Context Badge records how long the current top-level window stays in the
+foreground. Browser and editor titles are stored as pages when the application
+name can be stripped from the native title.
+
+Stays shorter than `dwell_noise_seconds` (default 8) are treated as noise and
+are not written. Once a stay crosses that threshold, the in-progress duration
+is checkpointed, then refreshed every `dwell_checkpoint_seconds` (default 60)
+so an unexpected shutdown still has a recent value to recover.
+
+Both knobs live in the ordinary preferences JSON and are created with defaults
+on first launch if they are missing:
+
+```json
+{
+  "dwell_noise_seconds": 8,
+  "dwell_checkpoint_seconds": 60
+}
+```
+
+History is an append-only JSONL file with a sibling `.bak` copy. The open
+session is a small JSON file with its own `.bak`. If a write is interrupted,
+the reader skips a truncated last line and falls back to the last good backup.
+
 ### Exit
 
 Choose `Exit Context Badge` to close the app immediately.
@@ -97,12 +123,16 @@ Choose `Exit Context Badge` to close the app immediately.
 
 When you run from source, preferences are stored in `.context-badge.json`
 beside the repository. The packaged Windows executable stores the same settings
-in `%LOCALAPPDATA%\Context Badge\preferences.json`. Both files are local only
-and contain UI preferences such as position, dimensions, and colours.
+in `%LOCALAPPDATA%\Context Badge\preferences.json`. Dwell history uses
+`.context-badge-dwell.jsonl` and `.context-badge-dwell-active.json` in the
+source checkout, or `dwell.jsonl` and `dwell-active.json` under
+`%LOCALAPPDATA%\Context Badge` when packaged. All of these files are local only
+and contain UI preferences plus foreground app/page titles and durations.
 
 The current version reads the foreground window handle, executable name, and
-visible native window title. It does not capture screenshots, record keystrokes,
-or send data over the network.
+visible native window title, and it stores local dwell records derived from
+those values. It does not capture screenshots, record keystrokes, or send data
+over the network.
 
 ## Current limitations
 
@@ -113,6 +143,7 @@ or send data over the network.
 - Browser URLs and VS Code workspace metadata will require optional extensions
   or accessibility integrations.
 - Full-screen applications may choose to render above third-party overlays.
+- Dwell records are stored locally; an in-app time report is not available yet.
 
 ## Development
 
@@ -121,8 +152,11 @@ The codebase uses only the Python standard library:
 ```text
 context_badge/
 ├── app.py          UI state and interactions
+├── dwell.py        foreground stay tracking
+├── dwell_store.py  dual-backup JSON/JSONL persistence
 ├── layout.py       size-dependent type and spacing
 ├── paths.py        source vs packaged config locations
+├── surface.py      page labels from window titles
 ├── text_layout.py  measured wrapping and ellipsis
 ├── theme.py        palette and theme helpers
 └── win32.py        Windows API boundary
@@ -135,7 +169,8 @@ python -m unittest discover -s tests -v
 python -m compileall -q app.py context_badge
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines. The
+turn-level development log for this work is [docs/dev-log.md](docs/dev-log.md).
 
 ## Packaging
 

@@ -11,6 +11,14 @@ def is_frozen() -> bool:
     return bool(getattr(sys, "frozen", False))
 
 
+def _runtime_dir() -> Path:
+    if is_frozen():
+        appdata = os.environ.get("LOCALAPPDATA")
+        base = Path(appdata) if appdata else Path.home() / "AppData" / "Local"
+        return base / "Context Badge"
+    return Path(__file__).resolve().parents[1]
+
+
 def config_path() -> Path:
     """Return the preferences file for the current runtime.
 
@@ -19,7 +27,19 @@ def config_path() -> Path:
     ``%LOCALAPPDATA%\\Context Badge`` so they survive temp extraction.
     """
     if is_frozen():
-        appdata = os.environ.get("LOCALAPPDATA")
-        base = Path(appdata) if appdata else Path.home() / "AppData" / "Local"
-        return base / "Context Badge" / "preferences.json"
-    return Path(__file__).resolve().parents[1] / ".context-badge.json"
+        return _runtime_dir() / "preferences.json"
+    return _runtime_dir() / ".context-badge.json"
+
+
+def dwell_log_path() -> Path:
+    """Return the append-only dwell history file."""
+    if is_frozen():
+        return _runtime_dir() / "dwell.jsonl"
+    return _runtime_dir() / ".context-badge-dwell.jsonl"
+
+
+def dwell_active_path() -> Path:
+    """Return the in-progress dwell session file."""
+    if is_frozen():
+        return _runtime_dir() / "dwell-active.json"
+    return _runtime_dir() / ".context-badge-dwell-active.json"
