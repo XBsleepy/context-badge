@@ -10,6 +10,7 @@ import json
 import tkinter as tk
 from tkinter import font as tkfont
 
+from .layout import badge_metrics
 from .paths import config_path
 from .text_layout import fit_text
 from .theme import (
@@ -99,8 +100,19 @@ class ContextBadge:
             f"+{self.TOP_MARGIN}"
         )
 
-        self.app_font = tkfont.Font(family="Segoe UI Semibold", size=10)
-        self.title_font = tkfont.Font(family="Segoe UI Semibold", size=13)
+        self.layout = badge_metrics(self.badge_width, self.badge_height)
+        self.app_font = tkfont.Font(
+            family="Segoe UI Semibold", size=self.layout.app_font_size
+        )
+        self.title_font = tkfont.Font(
+            family="Segoe UI Semibold", size=self.layout.title_font_size
+        )
+        self.handle_font = tkfont.Font(
+            family="Segoe UI Symbol", size=self.layout.handle_font_size
+        )
+        self.edit_icon_font = tkfont.Font(
+            family="Segoe UI Symbol", size=self.layout.edit_icon_font_size
+        )
 
         self.canvas = tk.Canvas(
             self.root,
@@ -112,29 +124,30 @@ class ContextBadge:
         )
         self.canvas.pack()
         self.app_text = self.canvas.create_text(
-            22,
-            19,
+            self.layout.padding_x,
+            self.layout.app_y,
             anchor="w",
             fill=self.secondary_text_color,
             font=self.app_font,
             text="CONTEXT BADGE",
         )
         self.title_text = self.canvas.create_text(
-            22,
-            38,
+            self.layout.padding_x,
+            self.layout.title_y,
             anchor="nw",
-            width=self.badge_width - self.EDIT_WIDTH - 38,
+            width=self.badge_width - self.EDIT_WIDTH - self.layout.padding_x
+            - self.layout.text_right_gap,
             fill=self.text_color,
             font=self.title_font,
             text="Starting…",
         )
         self.resize_handle = self.canvas.create_text(
-            self.badge_width - self.EDIT_WIDTH - 10,
-            self.badge_height - 8,
+            self.badge_width - self.EDIT_WIDTH - self.layout.handle_inset_x,
+            self.badge_height - self.layout.handle_inset_y,
             anchor="se",
             text="◢",
             fill="#69a7ff",
-            font=("Segoe UI Symbol", 11),
+            font=self.handle_font,
             state="hidden",
         )
 
@@ -157,21 +170,25 @@ class ContextBadge:
         self.edit_canvas.pack()
         self.edit_button_bg = self.edit_canvas.create_oval(
             7,
-            self.badge_height // 2 - 15,
+            self.badge_height // 2 - self.layout.edit_button_radius,
             self.EDIT_WIDTH - 7,
-            self.badge_height // 2 + 15,
+            self.badge_height // 2 + self.layout.edit_button_radius,
             fill=self.background_color,
             outline=self.background_color,
         )
         self.edit_divider = self.edit_canvas.create_line(
-            0, 10, 0, self.badge_height - 10, fill=self.border_color
+            0,
+            self.layout.divider_margin,
+            0,
+            self.badge_height - self.layout.divider_margin,
+            fill=self.border_color,
         )
         self.edit_icon = self.edit_canvas.create_text(
             self.EDIT_WIDTH // 2,
             self.badge_height // 2,
             text="✎",
             fill=self.text_color,
-            font=("Segoe UI Symbol", 13),
+            font=self.edit_icon_font,
         )
         self.edit_canvas.bind("<Button-1>", lambda _event: self._toggle_edit_control())
         self.edit_canvas.bind(
@@ -236,6 +253,7 @@ class ContextBadge:
         self._make_edit_button_interactive()
         self._make_menu_interactive()
         self._apply_theme()
+        self._apply_layout_metrics()
         self.canvas.bind("<ButtonPress-1>", self._start_drag)
         self.canvas.bind("<B1-Motion>", self._drag)
         self.canvas.bind("<ButtonRelease-1>", self._finish_drag)
@@ -646,11 +664,55 @@ class ContextBadge:
             prefix = ""
         self._render_text(prefix + self.current_app_name, self.current_title)
 
+    def _apply_layout_metrics(self) -> None:
+        self.layout = badge_metrics(self.badge_width, self.badge_height)
+        self.app_font.configure(size=self.layout.app_font_size)
+        self.title_font.configure(size=self.layout.title_font_size)
+        self.handle_font.configure(size=self.layout.handle_font_size)
+        self.edit_icon_font.configure(size=self.layout.edit_icon_font_size)
+        self.canvas.coords(
+            self.app_text, self.layout.padding_x, self.layout.app_y
+        )
+        self.canvas.coords(
+            self.title_text, self.layout.padding_x, self.layout.title_y
+        )
+        self.canvas.coords(
+            self.resize_handle,
+            self.badge_width - self.EDIT_WIDTH - self.layout.handle_inset_x,
+            self.badge_height - self.layout.handle_inset_y,
+        )
+        self.edit_canvas.coords(
+            self.edit_button_bg,
+            7,
+            self.badge_height // 2 - self.layout.edit_button_radius,
+            self.EDIT_WIDTH - 7,
+            self.badge_height // 2 + self.layout.edit_button_radius,
+        )
+        self.edit_canvas.coords(
+            self.edit_divider,
+            0,
+            self.layout.divider_margin,
+            0,
+            self.badge_height - self.layout.divider_margin,
+        )
+        self.edit_canvas.coords(
+            self.edit_icon, self.EDIT_WIDTH // 2, self.badge_height // 2
+        )
+
     def _render_text(self, app_label: str, title: str) -> None:
-        available_width = max(80, self.badge_width - self.EDIT_WIDTH - 44)
+        available_width = max(
+            80,
+            self.badge_width
+            - self.EDIT_WIDTH
+            - self.layout.padding_x
+            - self.layout.text_right_gap,
+        )
         app_display = fit_text(app_label, self.app_font, available_width, 1)
         line_height = max(1, self.title_font.metrics("linespace"))
-        available_height = max(line_height, self.badge_height - 44)
+        available_height = max(
+            line_height,
+            self.badge_height - self.layout.title_y - self.layout.text_bottom_gap,
+        )
         max_lines = max(1, available_height // line_height)
         title_display = fit_text(title, self.title_font, available_width, max_lines)
         self.canvas.itemconfigure(self.app_text, text=app_display)
@@ -662,25 +724,8 @@ class ContextBadge:
         self.badge_width = int(width)
         self.badge_height = int(height)
         self.canvas.configure(width=self.badge_width, height=self.badge_height)
-        self.canvas.coords(
-            self.resize_handle,
-            self.badge_width - self.EDIT_WIDTH - 10,
-            self.badge_height - 8,
-        )
         self.edit_canvas.configure(width=self.EDIT_WIDTH, height=self.badge_height)
-        self.edit_canvas.coords(
-            self.edit_button_bg,
-            7,
-            self.badge_height // 2 - 15,
-            self.EDIT_WIDTH - 7,
-            self.badge_height // 2 + 15,
-        )
-        self.edit_canvas.coords(
-            self.edit_divider, 0, 10, 0, self.badge_height - 10
-        )
-        self.edit_canvas.coords(
-            self.edit_icon, self.EDIT_WIDTH // 2, self.badge_height // 2
-        )
+        self._apply_layout_metrics()
         self._set_position(self.root.winfo_x(), self.root.winfo_y())
         self._update_app_label()
 

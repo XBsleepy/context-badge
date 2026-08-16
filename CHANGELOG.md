@@ -2,6 +2,12 @@
 
 All notable changes to Context Badge are documented here.
 
+## [Unreleased]
+
+### Added
+
+- Application label and window title now scale with the badge height while wrapping still follows the current width.
+
 ## [0.1.0] - 2026-08-16
 
 ### Added

@@ -16,6 +16,7 @@ other user-defined contexts.
 - Remains always on top and follows the active monitor until manually placed.
 - Preserves click-through behaviour outside edit modes.
 - Supports persistent position and size.
+- Scales label and title type with the badge height.
 - Includes an in-app colour palette for background, text, and border.
 - Supports a transparent background while keeping the edit control available.
 - Stores preferences locally and has no runtime dependencies.
@@ -71,7 +72,8 @@ new position.
 
 Choose `Resize badge`, drag the badge body to change its width and height, and
 click the check mark to save. The supported range is 280–1000 px wide and
-64–260 px high.
+64–260 px high. The application label and window title scale with the badge
+height; extra width is used for wrapping rather than larger type.
 
 ### Colours
 
@@ -119,6 +121,7 @@ The codebase uses only the Python standard library:
 ```text
 context_badge/
 ├── app.py          UI state and interactions
+├── layout.py       size-dependent type and spacing
 ├── paths.py        source vs packaged config locations
 ├── text_layout.py  measured wrapping and ellipsis
 ├── theme.py        palette and theme helpers
