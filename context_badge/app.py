@@ -24,7 +24,10 @@ from .dwell import (
 )
 from .dwell_store import DwellStore
 from .layout import badge_metrics
-from .paths import config_path, dwell_active_path, dwell_log_path
+from .list_bar import GAP_FROM_BADGE, ListBar
+from .list_store import ListStore
+from .paths import config_path, dwell_active_path, dwell_log_path, lists_path
+from .surface import surface_label
 from .text_layout import fit_text
 from .theme import (
     COLOUR_PALETTE,
@@ -66,7 +69,7 @@ class ContextBadge:
     MIN_HEIGHT = 64
     MAX_WIDTH = 1000
     MAX_HEIGHT = 260
-    TAB_COUNT = 3
+    TAB_COUNT = 4
     TAB_WIDTH = 46
     EDIT_WIDTH = TAB_COUNT * TAB_WIDTH
     MAIN_MENU_WIDTH = 200
@@ -111,6 +114,7 @@ class ContextBadge:
             self.MAX_HEIGHT,
         )
         self._ensure_dwell_config()
+        self._ensure_list_bar_config()
         self.hover_color = blend_hex(self.background_color, self.text_color, 0.12)
 
         self.root = tk.Tk()
@@ -204,7 +208,7 @@ class ContextBadge:
 
         # The first level stays compact. All appearance controls live under the
         # Colours second-level page. Close lives on the control strip. Move is
-        # a long-press on Edit rather than a menu row.
+        # a long-press on Menu rather than a menu row.
         self.edit_actions = [
             ("◲  Resize badge", self._begin_resize, "#f3f5f7"),
             ("◉  Colours  ›", self._open_colours, "#f3f5f7"),
@@ -214,7 +218,7 @@ class ContextBadge:
         self.menu_width = self.MAIN_MENU_WIDTH
         self.menu_height = self.MENU_ROW_HEIGHT * len(self.edit_actions)
         self.menu_window = tk.Toplevel(self.root)
-        self.menu_window.title("Context Badge Edit Menu")
+        self.menu_window.title("Context Badge Menu")
         self.menu_window.overrideredirect(True)
         self.menu_window.attributes("-topmost", True)
         self.menu_canvas = tk.Canvas(
@@ -241,6 +245,15 @@ class ContextBadge:
         self.taskbar_window.bind("<Map>", self._on_taskbar_map)
         self.taskbar_window.bind("<FocusIn>", self._on_taskbar_map)
         self.taskbar_window.withdraw()
+
+        self.list_store = ListStore(lists_path())
+        self.list_bar = ListBar(
+            self.root,
+            self.list_store,
+            expanded=self.list_bar_expanded,
+            on_expand_changed=self._on_list_expand,
+            on_geometry_changed=self._on_list_geometry,
+        )
 
         # Tk creates a child drawing HWND inside a native top-level wrapper.
         # Extended window styles must be applied to the wrapper, otherwise the
@@ -321,6 +334,23 @@ class ContextBadge:
         if changed:
             self._save_config()
 
+    def _ensure_list_bar_config(self) -> None:
+        expanded = bool(self.config.get("list_bar_expanded", False))
+        if self.config.get("list_bar_expanded") != expanded:
+            self.config["list_bar_expanded"] = expanded
+            self._save_config()
+        self.list_bar_expanded = expanded
+
+    def _on_list_expand(self, expanded: bool) -> None:
+        self.list_bar_expanded = expanded
+        self.config["list_bar_expanded"] = expanded
+        self._save_config()
+        self._draw_control_strip()
+
+    def _on_list_geometry(self) -> None:
+        if hasattr(self, "overlay_hwnd"):
+            self._set_position(self.root.winfo_x(), self.root.winfo_y())
+
     def _load_config(self) -> dict[str, object]:
         try:
             data = json.loads(config_path().read_text(encoding="utf-8"))
@@ -380,6 +410,8 @@ class ContextBadge:
         # need: owned edit/menu overlays are always drawn above the badge.
         set_window_owner(self.edit_hwnd, GWLP_HWNDPARENT, self.overlay_hwnd)
         set_window_owner(self.menu_hwnd, GWLP_HWNDPARENT, self.overlay_hwnd)
+        if hasattr(self, "list_bar"):
+            set_window_owner(self.list_bar.hwnd, GWLP_HWNDPARENT, self.overlay_hwnd)
 
     def _make_edit_button_interactive(self) -> None:
         style = user32.GetWindowLongW(self.edit_hwnd, GWL_EXSTYLE)
@@ -418,6 +450,8 @@ class ContextBadge:
                 0,
                 SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
             )
+        if hasattr(self, "list_bar"):
+            self.list_bar.raise_bar()
 
     def _make_menu_interactive(self) -> None:
         style = user32.GetWindowLongW(self.menu_hwnd, GWL_EXSTYLE)
@@ -455,6 +489,8 @@ class ContextBadge:
         self._press_tab = None
         self._press_origin = None
         if index == 1:
+            self._toggle_list_bar()
+        elif index == 2:
             self._minimize_to_taskbar()
         else:
             self._quit()
@@ -545,6 +581,12 @@ class ContextBadge:
             self._render_menu()
         self._set_menu_open(not self.menu_open)
 
+    def _toggle_list_bar(self) -> None:
+        if self.resize_mode:
+            self._end_interaction()
+        self.list_bar.set_expanded(not self.list_bar.expanded)
+        self._draw_control_strip()
+
     def _prepare_taskbar_proxy(self) -> None:
         style = user32.GetWindowLongW(self.taskbar_hwnd, GWL_EXSTYLE)
         style |= WS_EX_APPWINDOW
@@ -574,6 +616,7 @@ class ContextBadge:
         user32.ShowWindow(self.overlay_hwnd, SW_HIDE)
         user32.ShowWindow(self.edit_hwnd, SW_HIDE)
         user32.ShowWindow(self.menu_hwnd, SW_HIDE)
+        self.list_bar.hide()
         self._prepare_taskbar_proxy()
         self.taskbar_window.deiconify()
         self.taskbar_window.iconify()
@@ -610,6 +653,7 @@ class ContextBadge:
         if position is None:
             position = (self.root.winfo_x(), self.root.winfo_y())
         self._set_position(*position)
+        self.list_bar.show()
         self._apply_theme()
 
     def _render_menu(self) -> None:
@@ -844,7 +888,7 @@ class ContextBadge:
         )
         self.canvas.itemconfigure(self.app_text, fill=self.secondary_text_color)
         self.canvas.itemconfigure(self.title_text, fill=self.text_color)
-        # The control strip stays opaque so Edit / Hide / Close remain findable.
+        # The control strip stays opaque so Menu / List / Hide / Close remain findable.
         self.edit_window.attributes("-transparentcolor", "")
         self.edit_window.configure(bg=self.background_color)
         self.edit_canvas.configure(bg=self.background_color)
@@ -877,18 +921,22 @@ class ContextBadge:
         height = self.badge_height
         editing = self.resize_mode
         moving = self._edit_dragging
+        list_open = bool(getattr(self, "list_bar", None) and self.list_bar.expanded)
         labels = (
-            "Edit",
+            "Menu",
+            "List",
             "Hide",
             "Close",
         )
         icons = (
-            "✓" if editing else ("↔" if moving else ("×" if self.menu_open else "✎")),
+            "✓" if editing else ("↔" if moving else ("×" if self.menu_open else "☰")),
+            "▾" if list_open else "▸",
             "–",
             "×",
         )
         icon_colours = (
             "#8fc0ff" if (editing or moving or self.menu_open) else self.text_color,
+            "#8fc0ff" if list_open else self.text_color,
             self.text_color,
             "#ff8f8f",
         )
@@ -898,7 +946,7 @@ class ContextBadge:
             fill = self.background_color
             if self.hovered_tab == index or (
                 index == 0 and (editing or moving or self.menu_open)
-            ):
+            ) or (index == 1 and list_open):
                 fill = self.hover_color
             canvas.create_rectangle(
                 x0,
@@ -933,7 +981,7 @@ class ContextBadge:
                     text=labels[index],
                     fill=(
                         icon_colours[index]
-                        if index == 2
+                        if index == 3
                         else self.secondary_text_color
                     ),
                     font=self.tab_label_font,
@@ -1066,8 +1114,13 @@ class ContextBadge:
             0,
             SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
         )
+        if hasattr(self, "list_bar"):
+            list_y = y + self.badge_height + GAP_FROM_BADGE
+            self.list_bar.set_position(x, list_y, self.badge_width)
+            menu_y = list_y + self.list_bar.height() + 6
+        else:
+            menu_y = y + self.badge_height + 6
         menu_x = x + self.badge_width - self.menu_width
-        menu_y = y + self.badge_height + 6
         self.menu_window.geometry(
             f"{self.menu_width}x{self.menu_height}+{menu_x}+{menu_y}"
         )
@@ -1127,6 +1180,7 @@ class ContextBadge:
             )
             if self.last_foreground:
                 self._move_to_active_monitor(self.last_foreground)
+            self.list_bar.set_key("context_badge", "Time analysis")
             self.root.after(self.POLL_MS, self.refresh)
             return
         if foreground and foreground not in (
@@ -1134,7 +1188,8 @@ class ContextBadge:
             self.edit_hwnd,
             self.menu_hwnd,
             self.taskbar_hwnd,
-        ):
+            self.list_bar.hwnd,
+        ) and root_hwnd(foreground) != self.list_bar.hwnd:
             self.last_foreground = foreground
         else:
             foreground = self.last_foreground
@@ -1155,6 +1210,7 @@ class ContextBadge:
                     title=title,
                 )
             )
+            self.list_bar.set_key(executable, surface_label(executable, title))
             self._move_to_active_monitor(foreground)
 
         self.root.after(self.POLL_MS, self.refresh)

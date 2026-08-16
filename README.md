@@ -21,6 +21,7 @@ other user-defined contexts.
 - Includes an in-app colour palette for background, text, and border.
 - Supports a transparent background while keeping the control strip available.
 - Can be minimized to the taskbar from the Hide tab.
+- Keeps a collapsible per-tab todo list under the badge.
 - Stores preferences locally and has no runtime dependencies.
 
 ## Requirements
@@ -62,14 +63,15 @@ it.
 
 ## Using the badge
 
-Three tabs sit on the right edge: `Edit` opens the menu, `Hide` minimizes the
-badge to the taskbar, and `Close` quits. The rest of the badge remains
-click-through during normal use. Long-press `Edit` to drag the badge.
+Four tabs sit on the right edge: `Menu` opens the function menu, `List` shows
+or hides the todo panel, `Hide` minimizes the badge to the taskbar, and
+`Close` quits. The rest of the badge remains click-through during normal use.
+Long-press `Menu` to drag the badge.
 
 ### Move
 
-Long-press the `Edit` tab, then drag to move the badge. Release to drop it. A
-short click on `Edit` opens the menu instead; Move is no longer a menu item.
+Long-press the `Menu` tab, then drag to move the badge. Release to drop it. A
+short click on `Menu` opens the menu instead; Move is no longer a menu item.
 
 ### Resize
 
@@ -128,6 +130,22 @@ zoom into a stretch of the day (for example 06:00–09:00), drag to pan, and
 double-click to return to the full day. Apps and the action list follow the
 visible window. The timeline list stays scrollable for busy days.
 
+### Tab lists
+
+`List` on the right strip shows or hides a todo panel under the badge. Hidden,
+the panel takes no space. Shown, it lists todos for the current tab or page.
+The key is the process name plus the same page label used for dwell tracking,
+so a Chrome tab named `GitHub` keeps one list as you switch back to it.
+
+Rows can be checked off, edited, added, and deleted. Checked items stay in the
+list. Empty lists are not written to disk. Show/hide is remembered in
+preferences as `list_bar_expanded`.
+
+Lists are a JSON file with a sibling `.bak` copy, using the same crash-safe
+write path as the other local stores: `.context-badge-lists.json` beside the
+source checkout, or `lists.json` under `%LOCALAPPDATA%\Context Badge` when
+packaged.
+
 ### Hide
 
 `Hide` minimizes Context Badge to the taskbar, like a normal window. Click the
@@ -144,13 +162,15 @@ beside the repository. The packaged Windows executable stores the same settings
 in `%LOCALAPPDATA%\Context Badge\preferences.json`. Dwell history uses
 `.context-badge-dwell.jsonl` and `.context-badge-dwell-active.json` in the
 source checkout, or `dwell.jsonl` and `dwell-active.json` under
-`%LOCALAPPDATA%\Context Badge` when packaged. All of these files are local only
-and contain UI preferences plus foreground app/page titles and durations.
+`%LOCALAPPDATA%\Context Badge` when packaged. Per-tab lists use
+`.context-badge-lists.json` or `lists.json` in those same locations. All of
+these files are local only and contain UI preferences plus foreground app/page
+titles, durations, and optional todo text.
 
 The current version reads the foreground window handle, executable name, and
-visible native window title, and it stores local dwell records derived from
-those values. It does not capture screenshots, record keystrokes, or send data
-over the network.
+visible native window title, and it stores local dwell records and per-tab todo
+lists derived from those values. It does not capture screenshots, record
+keystrokes, or send data over the network.
 
 ## Current limitations
 
@@ -175,6 +195,8 @@ context_badge/
 ├── dwell_report.py     app totals and day slices
 ├── dwell_store.py      dual-backup JSON/JSONL persistence
 ├── layout.py           size-dependent type and spacing
+├── list_bar.py         optional per-tab todo panel
+├── list_store.py       dual-backup todo persistence
 ├── paths.py            source vs packaged config locations
 ├── surface.py          page labels from window titles
 ├── text_layout.py      measured wrapping and ellipsis

@@ -213,3 +213,69 @@ Execute the selected diff-tab commit-and-push action.
 ### 助手
 
 已在 `feat/time-analysis` 提交并推送 Edit 与 Move 合并：短按打开菜单，长按拖动徽章。
+
+---
+
+## Turn 17 · 2026-08-16 19:58
+
+### 用户
+
+新开一个分支，我们进行新功能的设计:核心feature是根据当前不同的tab,维护一个可编辑list
+
+### 助手
+
+从最新 main 开设计：每个前台 tab/页面对应一份可编辑 list。你后面选了徽章下方一条可折叠待办栏。
+
+---
+
+## Turn 18 · 2026-08-16 20:00
+
+### 用户
+
+让我在几个可能的设计中选择一下
+
+### 助手
+
+选定方案：徽章下面一条新栏，可折叠；展开后是当前 tab 的 todo，可以勾选完成。
+
+---
+
+## Turn 19 · 2026-08-16 20:03
+
+### 用户
+
+徽章下方的 per-tab 待办栏
+
+Implement the plan as specified, it is attached for your reference. Do NOT edit the plan file itself.
+
+### 助手
+
+已开分支 `feat/tab-todos`。徽章下方有一条可折叠待办栏，随当前前台 tab 换清单；展开后可勾选、改文字、新增和删除。空清单不落盘，存储是带双备份的本地 JSON。
+
+---
+
+## Turn 20 · 2026-08-16 20:25
+
+### 用户
+
+有点丑，你再改一下，把它作为一个右侧标签，可选hidden/show.然后我们把Edit标名字改为Menu
+
+### 助手
+
+右侧现在是四个标签：Menu、List、Hide、Close。
+
+Menu 短按打开功能菜单，长按拖动徽章。List 用来显示或隐藏待办面板；关掉后徽章下面不再占一条栏。Hide 仍是最小化到任务栏，Close 退出。
+
+待办打开时只留一行页名和数量，下面是条目和 + Add item，不再用那条可点击的折叠头。开关会记在 `list_bar_expanded`。
+
+---
+
+## Turn 21 · 2026-08-16 20:18
+
+### 用户
+
+Execute the selected diff-tab commit-and-push action.
+
+### 助手
+
+已在 `feat/tab-todos` 提交并推送 List 标签待办面板，以及 Edit 改名为 Menu。

@@ -33,8 +33,9 @@ Do not commit `dist/` or `build/`; they are generated artifacts.
 - Keep changes focused and explain the user-visible behaviour.
 - Preserve click-through and no-focus behaviour outside edit modes.
 - Test changes with multiple windows and, when relevant, multiple monitors.
-- Do not commit `.context-badge.json` or `.context-badge-dwell*`; they contain
-  personal UI preferences and local dwell history.
+- Do not commit `.context-badge.json`, `.context-badge-dwell*`, or
+  `.context-badge-lists*`; they contain personal UI preferences, local dwell
+  history, and per-tab todo lists.
 - Follow [AGENTS.md](AGENTS.md): keep `docs/dev-log.md` current and do not add
   runtime dependencies.
 

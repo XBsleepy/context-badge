@@ -43,3 +43,10 @@ def dwell_active_path() -> Path:
     if is_frozen():
         return _runtime_dir() / "dwell-active.json"
     return _runtime_dir() / ".context-badge-dwell-active.json"
+
+
+def lists_path() -> Path:
+    """Return the per-tab todo list file."""
+    if is_frozen():
+        return _runtime_dir() / "lists.json"
+    return _runtime_dir() / ".context-badge-lists.json"
