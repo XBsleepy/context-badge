@@ -189,3 +189,27 @@ Execute the selected diff-tab commit-and-push action.
 ### 助手
 
 已在 `feat/time-analysis` 提交并推送右侧 Edit / Hide / Close 标签，以及 Hide 最小化到任务栏。
+
+---
+
+## Turn 15 · 2026-08-16 19:41
+
+### 用户
+
+让edit和move合并，如果长按的话就移动bar,否则出现功能菜单，edit点击后不再出现move。
+
+### 助手
+
+Edit 和 Move 合并了：短按 Edit 打开菜单（里面不再有 Move）；长按或按住拖动则直接移动徽章，松开即放下。
+
+---
+
+## Turn 16 · 2026-08-16 19:45
+
+### 用户
+
+Execute the selected diff-tab commit-and-push action.
+
+### 助手
+
+已在 `feat/time-analysis` 提交并推送 Edit 与 Move 合并：短按打开菜单，长按拖动徽章。

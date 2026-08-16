@@ -64,12 +64,12 @@ it.
 
 Three tabs sit on the right edge: `Edit` opens the menu, `Hide` minimizes the
 badge to the taskbar, and `Close` quits. The rest of the badge remains
-click-through during normal use.
+click-through during normal use. Long-press `Edit` to drag the badge.
 
 ### Move
 
-Choose `Move badge`, drag the badge body, and click the check mark to lock the
-new position.
+Long-press the `Edit` tab, then drag to move the badge. Release to drop it. A
+short click on `Edit` opens the menu instead; Move is no longer a menu item.
 
 ### Resize
 
