@@ -21,6 +21,16 @@ MIN_TITLE_FONT = 9
 MIN_HANDLE_FONT = 8
 MIN_EDIT_ICON_FONT = 11
 MAX_EDIT_ICON_FONT = 16
+BASE_LIST_FONT = 9
+BASE_LIST_COUNT_FONT = 8
+BASE_LIST_HEADER = 28
+BASE_LIST_ROW = 32
+BASE_LIST_ADD = 28
+MIN_LIST_FONT = 8
+MIN_LIST_COUNT_FONT = 7
+MIN_LIST_HEADER = 24
+MIN_LIST_ROW = 26
+MIN_LIST_ADD = 24
 
 
 @dataclass(frozen=True)
@@ -40,10 +50,20 @@ class BadgeMetrics:
     handle_inset_y: int
     edit_button_radius: int
     divider_margin: int
+    list_font_size: int
+    list_count_font_size: int
+    list_header_height: int
+    list_row_height: int
+    list_add_height: int
 
 
 def _scale_px(base: int, scale: float, minimum: int) -> int:
     return max(minimum, round(base * scale))
+
+
+def _damped_scale(ratio: float, amount: float) -> float:
+    """Grow slower than the raw size ratio so leftover space can wrap text."""
+    return 1.0 + amount * (max(ratio, 1e-6) - 1.0)
 
 
 def badge_metrics(
@@ -55,27 +75,30 @@ def badge_metrics(
 ) -> BadgeMetrics:
     """Return layout metrics that grow and shrink with the badge.
 
-    Type size follows height so a taller overlay is easier to read. Extra
-    width becomes wrapping room rather than larger letters, which keeps a
-    short-wide badge from clipping.
+    Type size follows height, but only part-way, so extra height opens more
+    title lines instead of only enlarging letters. Extra width becomes
+    wrapping room rather than larger type, which keeps a short-wide badge
+    from clipping.
     """
-    height_scale = max(1, height) / default_height
+    height_ratio = max(1, height) / default_height
     width_scale = max(1, width) / default_width
+    font_scale = _damped_scale(height_ratio, 0.42)
+    pos_scale = _damped_scale(height_ratio, 0.28)
     padding_x = _scale_px(BASE_PADDING_X, width_scale**0.5, 12)
-    app_y = _scale_px(BASE_APP_Y, height_scale, 12)
-    title_y = _scale_px(BASE_TITLE_Y, height_scale, app_y + 8)
-    text_bottom_gap = _scale_px(BASE_TEXT_BOTTOM_GAP, height_scale, 6)
+    app_y = _scale_px(BASE_APP_Y, pos_scale, 12)
+    title_y = _scale_px(BASE_TITLE_Y, pos_scale, app_y + 8)
+    text_bottom_gap = _scale_px(BASE_TEXT_BOTTOM_GAP, pos_scale, 6)
     divider_margin = min(
-        _scale_px(BASE_DIVIDER_MARGIN, height_scale, 6),
+        _scale_px(BASE_DIVIDER_MARGIN, pos_scale, 6),
         max(6, (height - 20) // 2),
     )
     return BadgeMetrics(
-        app_font_size=_scale_px(BASE_APP_FONT, height_scale, MIN_APP_FONT),
-        title_font_size=_scale_px(BASE_TITLE_FONT, height_scale, MIN_TITLE_FONT),
-        handle_font_size=_scale_px(BASE_HANDLE_FONT, height_scale, MIN_HANDLE_FONT),
+        app_font_size=_scale_px(BASE_APP_FONT, font_scale, MIN_APP_FONT),
+        title_font_size=_scale_px(BASE_TITLE_FONT, font_scale, MIN_TITLE_FONT),
+        handle_font_size=_scale_px(BASE_HANDLE_FONT, font_scale, MIN_HANDLE_FONT),
         edit_icon_font_size=min(
             MAX_EDIT_ICON_FONT,
-            _scale_px(BASE_EDIT_ICON_FONT, height_scale, MIN_EDIT_ICON_FONT),
+            _scale_px(BASE_EDIT_ICON_FONT, font_scale, MIN_EDIT_ICON_FONT),
         ),
         padding_x=padding_x,
         app_y=app_y,
@@ -83,7 +106,14 @@ def badge_metrics(
         text_right_gap=padding_x,
         text_bottom_gap=text_bottom_gap,
         handle_inset_x=_scale_px(BASE_HANDLE_INSET_X, width_scale**0.5, 8),
-        handle_inset_y=_scale_px(BASE_HANDLE_INSET_Y, height_scale, 6),
+        handle_inset_y=_scale_px(BASE_HANDLE_INSET_Y, pos_scale, 6),
         edit_button_radius=BASE_EDIT_BUTTON_RADIUS,
         divider_margin=divider_margin,
+        list_font_size=_scale_px(BASE_LIST_FONT, font_scale, MIN_LIST_FONT),
+        list_count_font_size=_scale_px(
+            BASE_LIST_COUNT_FONT, font_scale, MIN_LIST_COUNT_FONT
+        ),
+        list_header_height=_scale_px(BASE_LIST_HEADER, font_scale, MIN_LIST_HEADER),
+        list_row_height=_scale_px(BASE_LIST_ROW, font_scale, MIN_LIST_ROW),
+        list_add_height=_scale_px(BASE_LIST_ADD, font_scale, MIN_LIST_ADD),
     )

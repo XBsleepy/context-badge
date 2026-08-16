@@ -1,7 +1,9 @@
 """Colour constants and small theme helpers."""
 
 DEFAULT_BACKGROUND = "#263244"
+DEFAULT_LIST_BACKGROUND = "#20232a"
 DEFAULT_TEXT = "#f4f7fb"
+TRANSPARENT = "transparent"
 TRANSPARENT_KEY = "#010203"
 
 COLOUR_PALETTE = (
@@ -22,6 +24,22 @@ COLOUR_PALETTE = (
     "#84cc16",
     "#a16207",
 )
+
+
+def is_transparent(color: object) -> bool:
+    """Return whether a stored fill is the transparent swatch."""
+    value = str(color or "").strip().lower()
+    return value in {TRANSPARENT, TRANSPARENT_KEY.lower()}
+
+
+def paint_color(color: object, fallback: str = DEFAULT_BACKGROUND) -> str:
+    """Return a Tk fill: the colour-key for transparent, otherwise a hex."""
+    if is_transparent(color):
+        return TRANSPARENT_KEY
+    text = str(color or "").strip()
+    if text.startswith("#") and len(text) == 7:
+        return text
+    return fallback
 
 
 def blend_hex(background: str, foreground: str, amount: float) -> str:

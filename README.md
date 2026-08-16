@@ -14,14 +14,14 @@ other user-defined contexts.
 - Displays the application/context label separately from the window title.
 - Wraps and ellipsizes long titles without overlapping the label.
 - Remains always on top and follows the active monitor until manually placed.
-- Preserves click-through behaviour outside edit modes.
+- Click-through follows Fix: the overlay captures the cursor until it is locked.
 - Supports persistent position and size.
-- Scales label and title type with the badge height.
+- Scales label, title, and list type with the badge height.
 - Records how long the foreground app, window, or page stays on top.
-- Includes an in-app colour palette for background, text, and border.
-- Supports a transparent background while keeping the control strip available.
+- Includes an in-app colour palette for badge background, list background, text, and border.
+- Treats transparent as a background fill, same as the solid swatches.
 - Can be minimized to the taskbar from the Hide tab.
-- Keeps a collapsible per-tab todo list under the badge.
+- Keeps a per-tab todo list, shown from the List tab.
 - Stores preferences locally and has no runtime dependencies.
 
 ## Requirements
@@ -70,35 +70,47 @@ Long-press `Menu` to drag the badge.
 
 ### Move
 
-Long-press the `Menu` tab, then drag to move the badge. Release to drop it. A
-short click on `Menu` opens the menu instead; Move is no longer a menu item.
+Drag anywhere on the badge body to move it. Long-press the `Menu` tab still
+works as a second handle. A short click on `Menu` opens the menu. Choose
+`Fix` to lock the overlay: the body becomes click-through, Menu / List /
+Hide / Close are replaced by a single right-edge `Unlock` tab, and dragging
+stops. Click `Unlock` to restore the four tabs and movement. Click-through
+follows `Fix`, not the transparent-background swatch. The setting is
+remembered as `position_locked`.
 
 ### Resize
 
 Choose `Resize badge`, drag the badge body to change its width and height, and
 click the check mark to save. The supported range is 280–1000 px wide and
-64–260 px high. The application label and window title scale with the badge
-height; extra width is used for wrapping rather than larger type.
+64–260 px high. Extra width is wrapping room. Extra height grows type only
+part-way so more of the window title can wrap onto additional lines. List
+type and row height follow the same height scale.
 
 ### Colours
 
 Open `Colours` to configure:
 
-- Background
+- Background, including a crossed-out transparent swatch at the same level as
+  the solid colours
+- List panel background, with the same palette and transparent swatch
 - Text
 - Border
-- Transparent background, represented by the crossed-out first background
-  swatch
 
-The palette is rendered inside the app; no system colour dialog is opened. A
-transparent badge temporarily restores its selected background in Move and
-Resize modes so it remains easy to manipulate.
+Transparent is stored as the fill value `transparent`, not a separate flag.
+Old `background_transparent` preferences are migrated on launch. Resize mode
+temporarily uses the default solid fill so a transparent badge stays easy to
+grab. List fill is independent of the badge fill. The cursor still hits the
+overlay until `Fix` is on; transparent colour does not by itself pass clicks
+through.
 
 ### Time analysis
 
 Context Badge records how long the current top-level window stays in the
-foreground. Browser and editor titles are stored as pages when the application
-name can be stripped from the native title.
+foreground. Browser titles drop Edge/Chrome chrome such as `和另外 N 个页面` and
+the profile suffix. When UI Automation is available, the selected tab name and
+address-bar URL are used instead of the raw window title. Editors such as
+Cursor are grouped by workspace (`file · workspace` on the badge; the todo list
+keys off the workspace). The Cursor Agents window uses the current chat title.
 
 Stays shorter than `dwell_noise_seconds` (default 8) are treated as noise and
 are not written. Once a stay crosses that threshold, the in-progress duration
@@ -134,11 +146,17 @@ visible window. The timeline list stays scrollable for busy days.
 
 `List` on the right strip shows or hides a todo panel under the badge. Hidden,
 the panel takes no space. Shown, it lists todos for the current tab or page.
-The key is the process name plus the same page label used for dwell tracking,
-so a Chrome tab named `GitHub` keeps one list as you switch back to it.
+
+Browser lists are keyed by the page URL when it can be read, otherwise by the
+cleaned tab title. Cursor/VS Code lists are keyed by workspace, so switching
+files in the same repo keeps the same list. Cursor Agents lists follow the
+current chat title. The badge still shows a short label (tab name, `file ·
+workspace`, or chat title).
 
 Rows can be checked off, edited, added, and deleted. Checked items stay in the
-list. Empty lists are not written to disk. Show/hide is remembered in
+list. The header is an editable note for extra context; if it is empty, the
+current window or page name is shown as a placeholder and is not stored. Empty
+lists with no note are not written to disk. Show/hide is remembered in
 preferences as `list_bar_expanded`.
 
 Lists are a JSON file with a sibling `.bak` copy, using the same crash-safe
@@ -165,21 +183,19 @@ source checkout, or `dwell.jsonl` and `dwell-active.json` under
 `%LOCALAPPDATA%\Context Badge` when packaged. Per-tab lists use
 `.context-badge-lists.json` or `lists.json` in those same locations. All of
 these files are local only and contain UI preferences plus foreground app/page
-titles, durations, and optional todo text.
+titles, optional page URLs, durations, and optional todo text.
 
-The current version reads the foreground window handle, executable name, and
-visible native window title, and it stores local dwell records and per-tab todo
-lists derived from those values. It does not capture screenshots, record
-keystrokes, or send data over the network.
+The current version reads the foreground window handle, executable name,
+visible native window title, and (when available) UI Automation tab names,
+address-bar URLs, and Cursor chat titles. It stores local dwell records and
+per-tab todo lists derived from those values. It does not capture screenshots,
+record keystrokes, or send data over the network.
 
 ## Current limitations
 
-- Recognition is based on the process and native window title; semantic labels
-  such as `LeetCode` and `RSI Research` are not implemented yet.
-- A browser or editor tab can only be observed when its title is exposed through
-  the top-level window title.
-- Browser URLs and VS Code workspace metadata will require optional extensions
-  or accessibility integrations.
+- Recognition is based on the process, native window title, and UI Automation
+  tab/URL/chat hints when they are available.
+- Semantic labels such as `LeetCode` and `RSI Research` are not implemented yet.
 - Full-screen applications may choose to render above third-party overlays.
 - Dwell records are stored locally; the first in-app report covers one day at a time.
 
@@ -198,9 +214,10 @@ context_badge/
 ├── list_bar.py         optional per-tab todo panel
 ├── list_store.py       dual-backup todo persistence
 ├── paths.py            source vs packaged config locations
-├── surface.py          page labels from window titles
+├── surface.py          page labels from titles and UI Automation
 ├── text_layout.py      measured wrapping and ellipsis
 ├── theme.py            palette and theme helpers
+├── uia.py              selected tab, URL, and chat title
 └── win32.py            Windows API boundary
 ```
 

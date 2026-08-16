@@ -41,16 +41,19 @@ class ListStore:
 
     def __init__(self, path: Path) -> None:
         self.path = path
-        self._lists = self._load_lists()
+        self._lists, self._notes = self._load_lists()
 
-    def _load_lists(self) -> dict[str, list[dict[str, Any]]]:
+    def _load_lists(
+        self,
+    ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, str]]:
         data = load_json_with_backup(self.path)
         if not data:
-            return {}
+            return {}, {}
         raw_lists = data.get("lists")
         if not isinstance(raw_lists, dict):
-            return {}
+            return {}, {}
         cleaned: dict[str, list[dict[str, Any]]] = {}
+        notes: dict[str, str] = {}
         for key, bucket in raw_lists.items():
             if not isinstance(key, str) or not isinstance(bucket, dict):
                 continue
@@ -61,11 +64,25 @@ class ListStore:
             ]
             if items:
                 cleaned[key] = items
-        return cleaned
+            note = str(bucket.get("note") or "").strip()
+            if note:
+                notes[key] = note
+        return cleaned, notes
 
     def items(self, key: str) -> list[dict[str, Any]]:
         stored = self._lists.get(key, [])
         return [dict(item) for item in stored]
+
+    def note(self, key: str) -> str:
+        return self._notes.get(key, "")
+
+    def set_note(self, key: str, text: str) -> None:
+        note = str(text).strip()
+        if note:
+            self._notes[key] = note
+        else:
+            self._notes.pop(key, None)
+        self._save()
 
     def open_count(self, key: str) -> int:
         return sum(1 for item in self._lists.get(key, []) if not item["done"])
@@ -104,15 +121,28 @@ class ListStore:
         return None
 
     def _save(self) -> None:
-        payload_lists: dict[str, dict[str, list[dict[str, Any]]]] = {}
+        payload_lists: dict[str, dict[str, Any]] = {}
         kept: dict[str, list[dict[str, Any]]] = {}
-        for key, items in self._lists.items():
-            nonempty = [dict(item) for item in items if str(item.get("id") or "")]
-            if not nonempty:
+        kept_notes: dict[str, str] = {}
+        for key in set(self._lists) | set(self._notes):
+            nonempty = [
+                dict(item)
+                for item in self._lists.get(key, [])
+                if str(item.get("id") or "")
+            ]
+            note = str(self._notes.get(key) or "").strip()
+            if not nonempty and not note:
                 continue
-            kept[key] = nonempty
-            payload_lists[key] = {"items": nonempty}
+            if nonempty:
+                kept[key] = nonempty
+            if note:
+                kept_notes[key] = note
+            bucket: dict[str, Any] = {"items": nonempty}
+            if note:
+                bucket["note"] = note
+            payload_lists[key] = bucket
         self._lists = kept
+        self._notes = kept_notes
         if not payload_lists and not self.path.exists():
             return
         write_json_atomic(self.path, {"version": 1, "lists": payload_lists})

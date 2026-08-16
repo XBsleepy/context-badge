@@ -1,6 +1,13 @@
 import unittest
 
-from context_badge.theme import blend_hex, bounded_int
+from context_badge.theme import (
+    TRANSPARENT,
+    TRANSPARENT_KEY,
+    blend_hex,
+    bounded_int,
+    is_transparent,
+    paint_color,
+)
 
 
 class ThemeTests(unittest.TestCase):
@@ -19,6 +26,13 @@ class ThemeTests(unittest.TestCase):
         self.assertEqual(bounded_int("500", 440, 280, 1000), 500)
         self.assertEqual(bounded_int("bad", 440, 280, 1000), 440)
         self.assertEqual(bounded_int(5000, 440, 280, 1000), 1000)
+
+    def test_transparent_is_a_fill_value(self) -> None:
+        self.assertTrue(is_transparent(TRANSPARENT))
+        self.assertTrue(is_transparent(TRANSPARENT_KEY))
+        self.assertFalse(is_transparent("#263244"))
+        self.assertEqual(paint_color(TRANSPARENT), TRANSPARENT_KEY)
+        self.assertEqual(paint_color("#263244"), "#263244")
 
 
 if __name__ == "__main__":

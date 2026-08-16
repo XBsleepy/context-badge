@@ -47,6 +47,33 @@ class ListStoreTests(unittest.TestCase):
         self.store.delete_item(key, items[1]["id"])
         self.assertEqual(len(self.store.items(key)), 1)
 
+    def test_note_round_trip_and_survives_without_items(self) -> None:
+        key = list_key("chrome.exe", "GitHub")
+        self.store.set_note(key, "  ship after lunch  ")
+        self.assertEqual(self.store.note(key), "ship after lunch")
+        payload = json.loads(self.path.read_text(encoding="utf-8"))
+        self.assertEqual(payload["lists"][key]["note"], "ship after lunch")
+        self.assertEqual(payload["lists"][key]["items"], [])
+        restored = ListStore(self.path)
+        self.assertEqual(restored.note(key), "ship after lunch")
+        self.assertEqual(restored.items(key), [])
+
+    def test_deleting_the_last_item_keeps_the_key_when_a_note_exists(self) -> None:
+        key = list_key("notepad.exe", "notes.txt")
+        self.store.set_note(key, "keep this")
+        item = self.store.add_item(key, "one")
+        self.store.delete_item(key, item["id"])
+        payload = json.loads(self.path.read_text(encoding="utf-8"))
+        self.assertEqual(payload["lists"][key]["items"], [])
+        self.assertEqual(payload["lists"][key]["note"], "keep this")
+
+    def test_blank_note_is_dropped(self) -> None:
+        key = list_key("chrome.exe", "GitHub")
+        self.store.set_note(key, "temp")
+        self.store.set_note(key, "   ")
+        payload = json.loads(self.path.read_text(encoding="utf-8"))
+        self.assertEqual(payload["lists"], {})
+
     def test_deleting_the_last_item_drops_the_key(self) -> None:
         key = list_key("notepad.exe", "notes.txt")
         item = self.store.add_item(key, "one")

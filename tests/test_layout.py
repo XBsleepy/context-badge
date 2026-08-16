@@ -11,6 +11,10 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual(metrics.padding_x, 22)
         self.assertEqual(metrics.app_y, 19)
         self.assertEqual(metrics.title_y, 38)
+        self.assertEqual(metrics.list_font_size, 9)
+        self.assertEqual(metrics.list_count_font_size, 8)
+        self.assertEqual(metrics.list_header_height, 28)
+        self.assertEqual(metrics.list_row_height, 32)
 
     def test_taller_badge_uses_larger_type(self) -> None:
         default = badge_metrics(440, 72)
@@ -18,6 +22,19 @@ class LayoutTests(unittest.TestCase):
         self.assertGreater(tall.app_font_size, default.app_font_size)
         self.assertGreater(tall.title_font_size, default.title_font_size)
         self.assertGreater(tall.title_y, default.title_y)
+        self.assertGreater(tall.list_font_size, default.list_font_size)
+        self.assertGreater(tall.list_row_height, default.list_row_height)
+
+    def test_extra_height_grows_title_slot_faster_than_type(self) -> None:
+        default = badge_metrics(440, 72)
+        tall = badge_metrics(440, 144)
+        default_slot = 72 - default.title_y - default.text_bottom_gap
+        tall_slot = 144 - tall.title_y - tall.text_bottom_gap
+        self.assertGreater(tall_slot, default_slot)
+        self.assertGreater(
+            tall_slot / default_slot,
+            tall.title_font_size / default.title_font_size,
+        )
 
     def test_shorter_badge_uses_smaller_type(self) -> None:
         default = badge_metrics(440, 72)

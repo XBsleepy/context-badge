@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import tkinter as tk
 from collections.abc import Callable
-from tkinter import font as tkfont
 from typing import Any
 
 from .list_store import ListStore, list_key
-from .text_layout import fit_text
+from .theme import TRANSPARENT_KEY, blend_hex, is_transparent, paint_color
 from .win32 import (
     GWL_EXSTYLE,
     HWND_TOPMOST,
@@ -36,6 +35,7 @@ MUTED = "#aab3c2"
 ACCENT = "#8fc0ff"
 DONE = "#6b7380"
 ROW = "#1a1d24"
+CHECK_WELL = "#3a3f4a"
 
 
 class ListBar:
@@ -64,6 +64,17 @@ class ListBar:
         self._x = 0
         self._y = 0
         self._width = 280
+        self._transparent = False
+        self._panel_bg = BG
+        self._row_bg = ROW
+        self._text = TEXT
+        self._muted = MUTED
+        self._note_placeholder = True
+        self._font_size = 9
+        self._count_font_size = 8
+        self._header_height = HEADER_HEIGHT
+        self._row_height = ROW_HEIGHT
+        self._add_height = ADD_HEIGHT
 
         self.window = tk.Toplevel(parent)
         self.window.title("Context Badge list")
@@ -74,15 +85,22 @@ class ListBar:
 
         self.header = tk.Frame(self.window, bg=BG, height=HEADER_HEIGHT)
         self.header.pack_propagate(False)
-        self.title_label = tk.Label(
+        self.note_var = tk.StringVar()
+        self.note_entry = tk.Entry(
             self.header,
-            text="Starting…",
+            textvariable=self.note_var,
             bg=BG,
-            fg=TEXT,
+            fg=MUTED,
+            insertbackground=TEXT,
+            relief="flat",
             font=("Segoe UI Semibold", 9),
-            anchor="w",
+            highlightthickness=0,
+            bd=0,
         )
-        self.title_label.pack(side="left", fill="x", expand=True, padx=(12, 0))
+        self.note_entry.pack(side="left", fill="x", expand=True, padx=(12, 0))
+        self.note_entry.bind("<FocusIn>", self._on_note_focus_in)
+        self.note_entry.bind("<FocusOut>", self._on_note_focus_out)
+        self.note_entry.bind("<Return>", self._on_note_return)
         self.count_label = tk.Label(
             self.header,
             text="",
@@ -108,6 +126,8 @@ class ListBar:
         self.rows.bind("<Configure>", self._on_rows_configure)
         self.canvas.bind("<Configure>", self._on_canvas_configure)
         self.canvas.bind("<MouseWheel>", self._on_mousewheel)
+        self.rows.bind("<MouseWheel>", self._on_mousewheel)
+        self.header.bind("<MouseWheel>", self._on_mousewheel)
         self.add_button = tk.Label(
             self.body,
             text="+  Add item",
@@ -120,6 +140,7 @@ class ListBar:
             pady=4,
         )
         self.add_button.bind("<Button-1>", lambda _event: self._add_item())
+        self.add_button.bind("<MouseWheel>", self._on_mousewheel)
 
         self.window.update_idletasks()
         inner = self.window.winfo_id()
@@ -130,6 +151,74 @@ class ListBar:
             self.header.pack(fill="x")
         self._sync_body()
         self._refresh_header()
+
+    def apply_theme(self, *, background: str, text: str, muted: str) -> None:
+        """Paint the panel from its own fill, including the transparent swatch."""
+        self._text = text
+        self._muted = muted
+        self._transparent = is_transparent(background)
+        panel = paint_color(background, BG)
+        row = (
+            TRANSPARENT_KEY
+            if self._transparent
+            else blend_hex(panel, "#000000", 0.18)
+        )
+        self._panel_bg = panel
+        self._row_bg = row
+        self.window.attributes(
+            "-transparentcolor", TRANSPARENT_KEY if self._transparent else ""
+        )
+        self.window.configure(bg=panel)
+        self.header.configure(bg=panel, height=self._header_height)
+        self.note_entry.configure(
+            bg=panel,
+            fg=self._muted if self._note_placeholder else self._text,
+            insertbackground=self._text,
+            font=("Segoe UI Semibold", self._font_size),
+        )
+        self.count_label.configure(
+            bg=panel,
+            fg=self._muted,
+            font=("Segoe UI", self._count_font_size),
+        )
+        self.body.configure(bg=panel)
+        self.canvas.configure(bg=row)
+        self.rows.configure(bg=row)
+        self.add_button.configure(
+            bg=panel,
+            fg=ACCENT,
+            font=("Segoe UI Semibold", self._font_size),
+        )
+        if self.expanded:
+            self._sync_body()
+            self._render_rows()
+            self._refresh_header()
+            self._apply_geometry()
+
+    def apply_layout(
+        self,
+        *,
+        font_size: int,
+        count_font_size: int,
+        header_height: int,
+        row_height: int,
+        add_height: int,
+    ) -> None:
+        """Follow the badge height so list type and rows stay in proportion."""
+        self._font_size = int(font_size)
+        self._count_font_size = int(count_font_size)
+        self._header_height = int(header_height)
+        self._row_height = int(row_height)
+        self._add_height = int(add_height)
+        self.header.configure(height=self._header_height)
+        self.note_entry.configure(font=("Segoe UI Semibold", self._font_size))
+        self.count_label.configure(font=("Segoe UI", self._count_font_size))
+        self.add_button.configure(font=("Segoe UI Semibold", self._font_size))
+        if self.expanded:
+            self._render_rows()
+            self._apply_geometry()
+            if self.on_geometry_changed:
+                self.on_geometry_changed()
 
     def _apply_window_style(self) -> None:
         style = user32.GetWindowLongW(self.hwnd, GWL_EXSTYLE)
@@ -150,16 +239,28 @@ class ListBar:
     def height(self) -> int:
         if not self.expanded:
             return 0
-        rows_height = max(ROW_HEIGHT, len(self._items) * ROW_HEIGHT)
-        body = min(MAX_BODY_HEIGHT, rows_height + ADD_HEIGHT)
-        return HEADER_HEIGHT + body
+        rows_height = max(self._row_height, len(self._items) * self._row_height)
+        body = min(MAX_BODY_HEIGHT, rows_height + self._add_height)
+        return self._header_height + body
 
-    def set_key(self, executable: str, surface: str) -> None:
+    def set_key(
+        self,
+        executable: str,
+        surface: str,
+        *,
+        label: str | None = None,
+    ) -> None:
         key = list_key(executable, surface)
+        header = (label or surface).strip() or "Untitled window"
+        if key != self._key and self._note_entry_focused():
+            self._commit_note(refresh=False)
         if key == self._key:
+            if header != self._surface:
+                self._surface = header
+                self._refresh_header()
             return
         self._key = key
-        self._surface = surface.strip() or "Untitled window"
+        self._surface = header
         self._editing = None
         self._reload()
 
@@ -249,28 +350,52 @@ class ListBar:
             0,
             SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
         )
-        canvas_height = max(ROW_HEIGHT, height - HEADER_HEIGHT - ADD_HEIGHT)
-        inner_width = max(80, self._width - 18)
+        canvas_height = max(self._row_height, height - self._header_height - self._add_height)
+        gutter = 8 if self._transparent else 18
+        inner_width = max(80, self._width - gutter)
         self.canvas.configure(width=inner_width, height=canvas_height)
         self.canvas.itemconfigure(self._rows_window, width=inner_width)
 
     def _sync_body(self) -> None:
-        if self.expanded:
-            self.body.pack(fill="both", expand=True)
-            self.add_button.pack(side="bottom", fill="x")
+        self.canvas.pack_forget()
+        self.scroll.pack_forget()
+        self.add_button.pack_forget()
+        self.body.pack_forget()
+        if not self.expanded:
+            return
+        self.body.pack(fill="both", expand=True)
+        self.add_button.pack(side="bottom", fill="x")
+        if not self._transparent:
             self.scroll.pack(side="right", fill="y")
-            self.canvas.pack(side="left", fill="both", expand=True)
-        else:
-            self.canvas.pack_forget()
-            self.scroll.pack_forget()
-            self.add_button.pack_forget()
-            self.body.pack_forget()
+        self.canvas.pack(side="left", fill="both", expand=True)
+
+    def _note_entry_focused(self) -> bool:
+        try:
+            return self.window.focus_get() is self.note_entry
+        except tk.TclError:
+            return False
 
     def _refresh_header(self) -> None:
-        title_font = tkfont.Font(family="Segoe UI Semibold", size=9)
-        available = max(80, self._width - 72)
-        display = fit_text(self._surface, title_font, available, 1)
-        self.title_label.configure(text=display)
+        if self._note_entry_focused() and not self._note_placeholder:
+            self._refresh_count()
+            return
+        note = ""
+        if self._key:
+            try:
+                note = self.store.note(self._key)
+            except OSError:
+                note = ""
+        if note:
+            self._note_placeholder = False
+            self.note_var.set(note)
+            self.note_entry.configure(fg=self._text)
+        else:
+            self._note_placeholder = True
+            self.note_var.set(self._surface)
+            self.note_entry.configure(fg=self._muted)
+        self._refresh_count()
+
+    def _refresh_count(self) -> None:
         open_count = sum(1 for item in self._items if not item["done"])
         if not self._items:
             self.count_label.configure(text="")
@@ -278,6 +403,33 @@ class ListBar:
             self.count_label.configure(text=f"{open_count} left")
         else:
             self.count_label.configure(text="done")
+
+    def _on_note_focus_in(self, _event: tk.Event) -> None:
+        if self._note_placeholder:
+            self._note_placeholder = False
+            self.note_var.set("")
+            self.note_entry.configure(fg=self._text)
+
+    def _on_note_focus_out(self, _event: tk.Event) -> None:
+        self._commit_note()
+
+    def _on_note_return(self, _event: tk.Event) -> str:
+        self._commit_note()
+        self.window.focus_set()
+        return "break"
+
+    def _commit_note(self, *, refresh: bool = True) -> None:
+        if not self._key:
+            if refresh:
+                self._refresh_header()
+            return
+        text = "" if self._note_placeholder else self.note_var.get().strip()
+        try:
+            self.store.set_note(self._key, text)
+        except OSError:
+            pass
+        if refresh:
+            self._refresh_header()
 
     def _render_rows(self) -> None:
         for child in self.rows.winfo_children():
@@ -289,18 +441,21 @@ class ListBar:
         self.canvas.configure(scrollregion=self.canvas.bbox("all") or (0, 0, 0, 0))
 
     def _build_row(self, item: dict[str, Any]) -> None:
-        row = tk.Frame(self.rows, bg=ROW, height=ROW_HEIGHT)
+        row_bg = self._row_bg
+        panel_bg = self._panel_bg
+        row = tk.Frame(self.rows, bg=row_bg, height=self._row_height)
         row.pack(fill="x")
         row.pack_propagate(False)
+        row.bind("<MouseWheel>", self._on_mousewheel)
         done_var = tk.BooleanVar(value=bool(item["done"]))
         self._vars.append(done_var)
         check = tk.Checkbutton(
             row,
             variable=done_var,
-            bg=ROW,
-            activebackground=ROW,
-            selectcolor=BG,
-            fg=TEXT,
+            bg=row_bg,
+            activebackground=row_bg,
+            selectcolor=CHECK_WELL if self._transparent else panel_bg,
+            fg=self._text,
             highlightthickness=0,
             bd=0,
             command=lambda item_id=item["id"], var=done_var: self._toggle_done(
@@ -311,11 +466,11 @@ class ListBar:
         if self._editing == item["id"]:
             entry = tk.Entry(
                 row,
-                bg=BG,
-                fg=TEXT,
-                insertbackground=TEXT,
+                bg=panel_bg,
+                fg=self._text,
+                insertbackground=self._text,
                 relief="flat",
-                font=("Segoe UI", 9),
+                font=("Segoe UI", self._font_size),
             )
             entry.insert(0, item["text"])
             entry.pack(side="left", fill="x", expand=True, padx=(0, 4), pady=4)
@@ -334,17 +489,18 @@ class ListBar:
             )
             entry.bind("<Escape>", lambda _event: self._cancel_edit())
         else:
-            colour = DONE if item["done"] else TEXT
+            colour = DONE if item["done"] else self._text
             label = tk.Label(
                 row,
                 text=item["text"] or "New item",
-                bg=ROW,
-                fg=colour if item["text"] else MUTED,
-                font=("Segoe UI", 9, "overstrike" if item["done"] else "normal"),
+                bg=row_bg,
+                fg=colour if item["text"] else self._muted,
+                font=("Segoe UI", self._font_size, "overstrike" if item["done"] else "normal"),
                 anchor="w",
                 cursor="xterm",
             )
             label.pack(side="left", fill="x", expand=True)
+            label.bind("<MouseWheel>", self._on_mousewheel)
             label.bind(
                 "<Button-1>",
                 lambda _event, item_id=item["id"]: self._begin_edit(item_id),
@@ -352,9 +508,9 @@ class ListBar:
         delete = tk.Label(
             row,
             text="×",
-            bg=ROW,
-            fg=MUTED,
-            font=("Segoe UI Semibold", 11),
+            bg=row_bg,
+            fg=self._muted,
+            font=("Segoe UI Semibold", max(11, self._font_size + 2)),
             cursor="hand2",
             padx=8,
         )
