@@ -8,6 +8,7 @@ All notable changes to Context Badge are documented here.
 
 - Application label and window title now scale with the badge height while wrapping still follows the current width.
 - Foreground dwell tracking with configurable noise/checkpoint intervals and dual-backup local storage.
+- In-app Time analysis window with per-app totals and a scrollable day timeline.
 
 ## [0.1.0] - 2026-08-16
 

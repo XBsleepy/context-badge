@@ -122,6 +122,17 @@ class DwellTrackerTests(unittest.TestCase):
         self.assertEqual(store.log, [])
         self.assertIsNone(store.active)
 
+    def test_snapshot_does_not_close_the_active_session(self) -> None:
+        page = chrome()
+        self.tracker.observe(page)
+        self.assertIsNone(self.tracker.snapshot())
+        self.clock.advance(8)
+        self.tracker.observe(page)
+        snap = self.tracker.snapshot()
+        self.assertIsNotNone(snap)
+        self.assertIsNotNone(self.store.active)
+        self.assertEqual(self.store.log, [])
+
 
 if __name__ == "__main__":
     unittest.main()

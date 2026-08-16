@@ -11,6 +11,7 @@ import json
 import tkinter as tk
 from tkinter import font as tkfont
 
+from .analysis_window import AnalysisWindow
 from .dwell import (
     DEFAULT_CHECKPOINT_SECONDS,
     DEFAULT_NOISE_SECONDS,
@@ -218,6 +219,7 @@ class ContextBadge:
             ("↔  Move badge", self._begin_move, "#f3f5f7"),
             ("◲  Resize badge", self._begin_resize, "#f3f5f7"),
             ("◉  Colours  ›", self._open_colours, "#f3f5f7"),
+            ("◷  Time analysis", self._open_analysis, "#f3f5f7"),
             ("×  Exit Context Badge", self._quit, "#ff8f8f"),
         ]
         self.menu_page = "main"
@@ -281,6 +283,10 @@ class ContextBadge:
             checkpoint_seconds=self.dwell_checkpoint_seconds,
         )
         atexit.register(self.dwell.close)
+        self.analysis = AnalysisWindow(self.root, self._dwell_records)
+        self.analysis.window.update_idletasks()
+        analysis_tk = self.analysis.window.winfo_id()
+        self.analysis_hwnd = user32.GetParent(analysis_tk) or analysis_tk
         self.root.after(0, self.refresh)
 
     def _ensure_dwell_config(self) -> None:
@@ -529,6 +535,26 @@ class ContextBadge:
     def _open_colours(self) -> None:
         self.menu_page = "colours"
         self._render_menu()
+
+    def _open_analysis(self) -> None:
+        self._set_menu_open(False)
+        x = self.root.winfo_x()
+        y = self.root.winfo_y() + self.badge_height + 8
+        self.analysis.show(x, y)
+        self.analysis.window.update_idletasks()
+        analysis_tk = self.analysis.window.winfo_id()
+        self.analysis_hwnd = user32.GetParent(analysis_tk) or analysis_tk
+
+    def _dwell_records(self) -> list[dict]:
+        records = list(self.dwell.store.load_history())
+        snapshot = self.dwell.snapshot()
+        if snapshot is not None:
+            records.append(snapshot)
+        else:
+            active = self.dwell.store.load_active()
+            if active is not None:
+                records.append(active)
+        return records
 
     def _handle_menu_click(self, event: tk.Event) -> None:
         if self.menu_page == "main":
@@ -864,6 +890,19 @@ class ContextBadge:
 
     def refresh(self) -> None:
         foreground = user32.GetForegroundWindow()
+        analysis_hwnd = getattr(self, "analysis_hwnd", 0)
+        if foreground and foreground == analysis_hwnd:
+            self.dwell.observe(
+                DwellObservation(
+                    executable="context_badge",
+                    app="Context Badge",
+                    title="Time analysis",
+                )
+            )
+            if self.last_foreground:
+                self._move_to_active_monitor(self.last_foreground)
+            self.root.after(self.POLL_MS, self.refresh)
+            return
         if foreground and foreground not in (
             self.overlay_hwnd,
             self.edit_hwnd,

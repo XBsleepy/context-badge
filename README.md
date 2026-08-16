@@ -115,6 +115,16 @@ History is an append-only JSONL file with a sibling `.bak` copy. The open
 session is a small JSON file with its own `.bak`. If a write is interrupted,
 the reader skips a truncated last line and falls back to the last good backup.
 
+Choose `Time analysis` to open a separate day report. It shows:
+
+- App totals for the selected date, ranked by dwell time
+- A compact 24-hour ribbon, with consecutive same-app stays merged
+- A scrollable action timeline of each recorded switch
+
+Use `‹` / `›` to change date, or `Today` to jump back. The timeline is built
+for busy days: hundreds of switches stay in a scrolling list, while the ribbon
+keeps the whole day visible at a glance.
+
 ### Exit
 
 Choose `Exit Context Badge` to close the app immediately.
@@ -143,7 +153,7 @@ over the network.
 - Browser URLs and VS Code workspace metadata will require optional extensions
   or accessibility integrations.
 - Full-screen applications may choose to render above third-party overlays.
-- Dwell records are stored locally; an in-app time report is not available yet.
+- Dwell records are stored locally; the first in-app report covers one day at a time.
 
 ## Development
 
@@ -151,15 +161,17 @@ The codebase uses only the Python standard library:
 
 ```text
 context_badge/
-├── app.py          UI state and interactions
-├── dwell.py        foreground stay tracking
-├── dwell_store.py  dual-backup JSON/JSONL persistence
-├── layout.py       size-dependent type and spacing
-├── paths.py        source vs packaged config locations
-├── surface.py      page labels from window titles
-├── text_layout.py  measured wrapping and ellipsis
-├── theme.py        palette and theme helpers
-└── win32.py        Windows API boundary
+├── app.py              UI state and interactions
+├── analysis_window.py  day report window
+├── dwell.py            foreground stay tracking
+├── dwell_report.py     app totals and day slices
+├── dwell_store.py      dual-backup JSON/JSONL persistence
+├── layout.py           size-dependent type and spacing
+├── paths.py            source vs packaged config locations
+├── surface.py          page labels from window titles
+├── text_layout.py      measured wrapping and ellipsis
+├── theme.py            palette and theme helpers
+└── win32.py            Windows API boundary
 ```
 
 Run checks with:
@@ -169,8 +181,9 @@ python -m unittest discover -s tests -v
 python -m compileall -q app.py context_badge
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines. The
-turn-level development log for this work is [docs/dev-log.md](docs/dev-log.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) for
+contribution and agent guidelines. The turn-level development log is
+[docs/dev-log.md](docs/dev-log.md).
 
 ## Packaging
 

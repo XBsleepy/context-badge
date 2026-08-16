@@ -86,6 +86,13 @@ class DwellTracker:
         except OSError:
             return
 
+    def snapshot(self) -> dict[str, Any] | None:
+        """Return the in-progress session without closing it."""
+        if self.current is None or not self.persisted:
+            return None
+        elapsed_ms = int((self.monotonic() - self.started_mono) * 1000)
+        return self._session_dict(elapsed_ms)
+
     def _recover(self) -> None:
         session = self.store.load_active()
         if not session:
