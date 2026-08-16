@@ -121,9 +121,10 @@ Choose `Time analysis` to open a separate day report. It shows:
 - A compact 24-hour ribbon, with consecutive same-app stays merged
 - A scrollable action timeline of each recorded switch
 
-Use `‹` / `›` to change date, or `Today` to jump back. The timeline is built
-for busy days: hundreds of switches stay in a scrolling list, while the ribbon
-keeps the whole day visible at a glance.
+Use `‹` / `›` to change date, or `Today` to jump back. Scroll the colour bar to
+zoom into a stretch of the day (for example 06:00–09:00), drag to pan, and
+double-click to return to the full day. Apps and the action list follow the
+visible window. The timeline list stays scrollable for busy days.
 
 ### Exit
 

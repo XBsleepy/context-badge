@@ -143,6 +143,12 @@ def format_clock(moment: datetime) -> str:
     return moment.strftime("%H:%M")
 
 
+def format_percent(part_ms: int, total_ms: int) -> str:
+    if total_ms <= 0:
+        return "0%"
+    return f"{round(100 * part_ms / total_ms)}%"
+
+
 def app_colour(name: str) -> str:
     digest = 5381
     for character in name:
@@ -170,6 +176,140 @@ def merge_adjacent_by_app(slices: list[DaySlice]) -> list[DaySlice]:
         else:
             merged.append(item)
     return merged
+
+
+MIN_VIEW_SPAN = timedelta(minutes=30)
+
+
+def clamp_view(
+    full_start: datetime,
+    full_end: datetime,
+    start: datetime,
+    end: datetime,
+    *,
+    min_span: timedelta = MIN_VIEW_SPAN,
+) -> tuple[datetime, datetime]:
+    """Keep a visible window inside the day and above the minimum span."""
+    full_span = full_end - full_start
+    span = max(min_span, min(full_span, end - start))
+    if start < full_start:
+        start = full_start
+    end = start + span
+    if end > full_end:
+        end = full_end
+        start = end - span
+        if start < full_start:
+            start = full_start
+    return start, end
+
+
+def zoom_view(
+    full_start: datetime,
+    full_end: datetime,
+    view_start: datetime,
+    view_end: datetime,
+    anchor: datetime,
+    factor: float,
+    *,
+    min_span: timedelta = MIN_VIEW_SPAN,
+) -> tuple[datetime, datetime]:
+    """Zoom the visible window around ``anchor``. ``factor`` < 1 zooms in."""
+    span = view_end - view_start
+    if span <= timedelta(0):
+        return clamp_view(full_start, full_end, full_start, full_end, min_span=min_span)
+    relative = 0.5
+    if span.total_seconds():
+        relative = (anchor - view_start) / span
+        relative = min(1.0, max(0.0, relative))
+    new_span = timedelta(seconds=span.total_seconds() * factor)
+    new_start = anchor - new_span * relative
+    new_end = new_start + new_span
+    return clamp_view(full_start, full_end, new_start, new_end, min_span=min_span)
+
+
+def pan_view(
+    full_start: datetime,
+    full_end: datetime,
+    view_start: datetime,
+    view_end: datetime,
+    delta: timedelta,
+) -> tuple[datetime, datetime]:
+    """Slide the visible window without changing its length."""
+    return clamp_view(
+        full_start,
+        full_end,
+        view_start + delta,
+        view_end + delta,
+        min_span=view_end - view_start,
+    )
+
+
+def clip_slice(item: DaySlice, start: datetime, end: datetime) -> DaySlice | None:
+    if item.ended_at <= start or item.started_at >= end:
+        return None
+    clipped_start = max(item.started_at, start)
+    clipped_end = min(item.ended_at, end)
+    duration_ms = int((clipped_end - clipped_start).total_seconds() * 1000)
+    if duration_ms <= 0:
+        return None
+    return DaySlice(
+        app=item.app,
+        surface=item.surface,
+        title=item.title,
+        started_at=clipped_start,
+        ended_at=clipped_end,
+        duration_ms=duration_ms,
+    )
+
+
+def slices_in_range(
+    slices: list[DaySlice], start: datetime, end: datetime
+) -> list[DaySlice]:
+    visible = []
+    for item in slices:
+        clipped = clip_slice(item, start, end)
+        if clipped is not None:
+            visible.append(clipped)
+    return visible
+
+
+def tick_times(view_start: datetime, view_end: datetime) -> list[datetime]:
+    """Return axis labels that get denser as the visible window shrinks."""
+    span = view_end - view_start
+    if span <= timedelta(0):
+        return [view_start]
+    seconds = span.total_seconds()
+    if seconds >= 12 * 3600:
+        step = timedelta(hours=6)
+    elif seconds >= 3 * 3600:
+        step = timedelta(hours=1)
+    elif seconds >= 3600:
+        step = timedelta(minutes=15)
+    else:
+        step = timedelta(minutes=5)
+    origin = view_start.replace(hour=0, minute=0, second=0, microsecond=0)
+    step_s = step.total_seconds()
+    start_s = (view_start - origin).total_seconds()
+    first_s = (start_s // step_s) * step_s
+    if first_s < start_s - 1e-6:
+        first_s += step_s
+    ticks: list[datetime] = []
+    end_s = (view_end - origin).total_seconds()
+    tick_s = first_s
+    while tick_s <= end_s + 1e-6:
+        ticks.append(origin + timedelta(seconds=tick_s))
+        tick_s += step_s
+    if not ticks or abs((ticks[0] - view_start).total_seconds()) > 1:
+        ticks.insert(0, view_start)
+    if abs((ticks[-1] - view_end).total_seconds()) > 1:
+        ticks.append(view_end)
+    return ticks
+
+
+def format_tick(moment: datetime, span: timedelta) -> str:
+    if span < timedelta(hours=4) or moment.minute or moment.second:
+        return moment.strftime("%H:%M")
+    return moment.strftime("%H")
 
 
 def _int_field(value: object, default: int) -> int:

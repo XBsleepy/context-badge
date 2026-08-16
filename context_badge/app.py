@@ -51,6 +51,7 @@ from .win32 import (
     executable_name,
     friendly_app_name,
     monitor_work_area,
+    root_hwnd,
     set_window_owner,
     user32,
     window_title,
@@ -544,6 +545,7 @@ class ContextBadge:
         self.analysis.window.update_idletasks()
         analysis_tk = self.analysis.window.winfo_id()
         self.analysis_hwnd = user32.GetParent(analysis_tk) or analysis_tk
+        self._show_analysis_prompt()
 
     def _dwell_records(self) -> list[dict]:
         records = list(self.dwell.store.load_history())
@@ -888,10 +890,31 @@ class ContextBadge:
         y = work.top + self.TOP_MARGIN
         self._set_position(x, y)
 
+    def _analysis_is_foreground(self, hwnd: int) -> bool:
+        if not hwnd or not getattr(self, "analysis", None):
+            return False
+        try:
+            inner = int(self.analysis.window.winfo_id())
+        except tk.TclError:
+            return False
+        outer = user32.GetParent(inner) or inner
+        self.analysis_hwnd = outer
+        focused = root_hwnd(hwnd)
+        return focused in (root_hwnd(inner), root_hwnd(outer), outer, inner)
+
+    def _show_analysis_prompt(self) -> None:
+        identity = ("context_badge", "Time analysis")
+        title = self.analysis.prompt_text()
+        if identity != self.last_identity or self.current_title != title:
+            self.current_app_name = "TIME ANALYSIS"
+            self.current_title = title
+            self._update_app_label()
+            self.last_identity = identity
+
     def refresh(self) -> None:
         foreground = user32.GetForegroundWindow()
-        analysis_hwnd = getattr(self, "analysis_hwnd", 0)
-        if foreground and foreground == analysis_hwnd:
+        if foreground and self._analysis_is_foreground(foreground):
+            self._show_analysis_prompt()
             self.dwell.observe(
                 DwellObservation(
                     executable="context_badge",
