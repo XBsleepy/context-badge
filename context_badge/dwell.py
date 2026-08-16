@@ -29,6 +29,7 @@ class DwellObservation:
     executable: str
     app: str
     title: str
+    page: str = ""
 
     @property
     def key(self) -> tuple[str, str]:
@@ -36,7 +37,7 @@ class DwellObservation:
 
     @property
     def surface(self) -> str:
-        return surface_label(self.executable, self.title)
+        return self.page or surface_label(self.executable, self.title)
 
 
 class DwellTracker:

@@ -25,6 +25,7 @@ WS_EX_TOOLWINDOW = 0x00000080
 WS_EX_APPWINDOW = 0x00040000
 WS_EX_LAYERED = 0x00080000
 WS_EX_NOACTIVATE = 0x08000000
+LWA_ALPHA = 0x00000002
 HWND_TOPMOST = -1
 SWP_NOSIZE = 0x0001
 SWP_NOMOVE = 0x0002
@@ -68,6 +69,13 @@ user32.MonitorFromWindow.restype = wintypes.HANDLE
 user32.GetMonitorInfoW.argtypes = [wintypes.HANDLE, ctypes.POINTER(MONITORINFO)]
 user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
 user32.GetAncestor.restype = wintypes.HWND
+user32.SetLayeredWindowAttributes.argtypes = [
+    wintypes.HWND,
+    wintypes.COLORREF,
+    wintypes.BYTE,
+    wintypes.DWORD,
+]
+user32.SetLayeredWindowAttributes.restype = wintypes.BOOL
 kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
 kernel32.OpenProcess.restype = wintypes.HANDLE
 kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
@@ -85,6 +93,8 @@ FRIENDLY_APPS = {
     "explorer.exe": "File Explorer",
     "notepad.exe": "Notepad",
     "obsidian.exe": "Obsidian",
+    "cursor.exe": "Cursor",
+    "wechat.exe": "WeChat",
 }
 
 
