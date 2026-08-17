@@ -13,9 +13,10 @@ context. Easier to stay focused.
 ![A floating Context Badge over Cursor, with a page note and a todo for the current task](docs/images/badge-page-todos.png)
 
 The badge follows the foreground window. In a browser it keys off the tab and
-URL when it can; in Cursor it keys off the workspace (or the current Agents
-chat). The list belongs to that page, not to a global dump of every thought
-you had today.
+URL when it can; in Cursor the **todo list** keys off the workspace (or the
+current Agents chat), while the badge title can still show the open file.
+Each workspace or page keeps its own list. A separate Base inbox stays put no
+matter which window is in front.
 
 ![The badge over AGENTS.md, with a workspace note and a checked-off list item](docs/images/badge-workspace-notes.png)
 
@@ -78,7 +79,8 @@ Stop with the `Close` tab, or `Ctrl+C` in the terminal that launched it.
 
 Four tabs sit on the right edge: `Menu`, `List`, `Hide`, `Close`. Drag the
 badge body to move it. Long-press `Menu` is a second handle; a short click
-opens the function menu.
+opens a standalone rounded menu. `Appearance ›` is a second page in that
+popup, so later pages can be added without crowding the badge.
 
 ### Fix
 
@@ -95,30 +97,52 @@ Extra width is wrapping room. Extra height grows type only part-way so more of
 the window title can wrap onto additional lines. List type and row height
 follow the same scale.
 
-### Colours
+### Appearance
 
-`Colours` configures:
+`Menu` → `Appearance ›` opens themes, corner radius, and a colour palette.
 
-- Badge background (including a crossed-out **transparent** swatch)
-- List panel background (same palette, independent of the badge)
-- Text
-- Border
+Presets (Ink, Slate, Parchment, Matcha, Ocean, Dusk) paint badge, list, text,
+and border together. Ink is the default for new installs. Already-saved
+colours are left as they are until you pick a theme or swatch.
 
+Corners are 0 / 8 / 12 / 16 / 20 px and apply to the badge, the menu card,
+and the list bubble. Default is 12.
+
+The palette still has per-slot swatches (background, list, text, border),
+including a crossed-out **transparent** swatch for the two backgrounds.
 Transparent is a fill value (`transparent`), not a separate flag. Old
 `background_transparent` preferences are migrated on launch.
 
 ### List
 
 `List` shows or hides a todo panel under the badge. Hidden, it takes no space.
+It hangs from the badge as a rounded chat-bubble / scroll: a top tail, paper
+body, and end rods, using the List fill and Border colours. Opening unrolls it
+downward.
 
-- Browsers: keyed by page URL when it can be read, otherwise the cleaned tab title
-- Cursor / VS Code: keyed by workspace, so file hops in the same repo keep one list
-- Cursor Agents: keyed by the current chat title
+The panel has two layers, each with a muted hint that stays until you type:
 
-Rows can be checked, edited, added, and deleted. Checked items stay. The
-header is an editable note; if it is empty, the current window or page name is
-only a placeholder and is not stored. Empty lists with no note are not written
-to disk.
+- A fixed inbox at the top that does not follow the foreground window:
+  *Here you can keep items that stay with you*
+- A note and todos for the current workspace or page:
+  *Here you can write a note for this place* / *Here you can add an item*
+  - Browsers: page URL when it can be read, otherwise the cleaned tab title
+  - Cursor / VS Code: workspace folder name. Switching `docs/dev-log.md` to
+    another file in the same repo keeps one list. Each list stores an
+    optional `label`; old `file - workspace` keys are merged into the
+    workspace key on load
+  - Cursor Agents: the current chat title
+
+The badge title can still show the current file (`dev-log.md · workspace`)
+so you know what is in front; dwell time stays per file. Only the todo list
+is grouped by workspace.
+
+List type matches the badge window title. Click the empty row at the bottom of
+either group to add an item. Enter saves the line and moves to the next row
+(inserting one in the middle, or starting the trailing empty row at the end).
+Rows can be checked, edited, and deleted. Checked items stay. The header is an
+editable note; empty notes are not stored. Empty lists with no note are not
+written to disk.
 
 ### Time analysis
 
@@ -151,9 +175,9 @@ same data under `%LOCALAPPDATA%\Context Badge`.
 
 The app reads the foreground window handle, executable name, visible title,
 and (when available) UI Automation tab names, address-bar URLs, and Cursor
-chat titles. It stores local dwell records and per-tab todos derived from
-those values. It does **not** capture screenshots, record keystrokes, or send
-data over the network.
+chat titles. It stores local dwell records, a global Base todo list, and
+per-tab todos derived from those values. It does **not** capture screenshots,
+record keystrokes, or send data over the network.
 
 ## Limitations
 
@@ -174,7 +198,9 @@ context_badge/
 ├── dwell_report.py     app totals and day slices
 ├── dwell_store.py      dual-backup JSON/JSONL persistence
 ├── layout.py           size-dependent type and spacing
-├── list_bar.py         optional per-tab todo panel
+├── bubble.py           hanging scroll-bubble outline
+├── menu_popup.py       standalone rounded menu and Appearance page
+├── list_bar.py         todo panel with Base and per-tab lists
 ├── list_store.py       dual-backup todo persistence
 ├── paths.py            source vs packaged config locations
 ├── surface.py          page labels from titles and UI Automation

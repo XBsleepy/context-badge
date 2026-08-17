@@ -11,10 +11,15 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual(metrics.padding_x, 22)
         self.assertEqual(metrics.app_y, 19)
         self.assertEqual(metrics.title_y, 38)
-        self.assertEqual(metrics.list_font_size, 9)
-        self.assertEqual(metrics.list_count_font_size, 8)
-        self.assertEqual(metrics.list_header_height, 28)
-        self.assertEqual(metrics.list_row_height, 32)
+        self.assertEqual(metrics.list_font_size, metrics.title_font_size)
+        self.assertEqual(metrics.list_font_size, 13)
+        self.assertEqual(metrics.list_count_font_size, metrics.app_font_size)
+        self.assertEqual(metrics.list_count_font_size, 10)
+        self.assertEqual(metrics.list_header_height, 40)
+        self.assertEqual(metrics.list_row_height, 44)
+        self.assertEqual(metrics.list_section_height, 26)
+        self.assertEqual(metrics.list_radius, 18)
+        self.assertEqual(metrics.list_tail_height, 11)
 
     def test_taller_badge_uses_larger_type(self) -> None:
         default = badge_metrics(440, 72)
@@ -23,6 +28,7 @@ class LayoutTests(unittest.TestCase):
         self.assertGreater(tall.title_font_size, default.title_font_size)
         self.assertGreater(tall.title_y, default.title_y)
         self.assertGreater(tall.list_font_size, default.list_font_size)
+        self.assertEqual(tall.list_font_size, tall.title_font_size)
         self.assertGreater(tall.list_row_height, default.list_row_height)
 
     def test_extra_height_grows_title_slot_faster_than_type(self) -> None:

@@ -4,9 +4,22 @@ All notable changes to Context Badge are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- A fixed Base todo bar at the top of the list panel that stays the same across windows, stored in the existing dual-backup lists file.
+
+- A hanging scroll / chat-bubble chrome on the list panel: top tail under the badge, rounded paper, end rods, and a short unroll animation. List fill and Border colours paint it.
+- A standalone rounded menu popup with an Appearance page: named colour themes, a corner-radius control, and a circular palette.
+
 ### Changed
 
 - README leads with the AI-coding context-switch story, badge screenshots, and Time analysis as a crude local report (LLM summaries called out as future work). Install documents the v0.2.0 `.exe` and that no system Python is required.
+- List type matches the badge window-title size; row and header height follow the same scale.
+- Click the trailing empty row to add an item; Enter saves and moves to the next row.
+- Default fills are the Ink theme (`#16181d` / `#101218` / `#f4f1ea` / `#8a8175`). Existing saved colours are not rewritten.
+- Badge, control strip, menu, and list follow a stored `corner_radius` (default 12).
+- The Base list has no heading; empty rows use *Here you can…* placeholders that disappear when you type (global items, the note, and new todos).
+- Cursor / VS Code todos key off the workspace and store a visible `label`. Old `file - workspace` list keys merge into the workspace key. The badge still shows the open file.
 
 ## [0.2.0] - 2026-08-16
 

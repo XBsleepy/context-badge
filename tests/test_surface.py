@@ -80,6 +80,23 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(resolved.display, "AGENTS.md · context-badge")
         self.assertEqual(resolved.dwell_surface, "AGENTS.md - context-badge")
         self.assertEqual(resolved.list_surface, "context-badge")
+        self.assertEqual(resolved.list_label, "context-badge")
+
+    def test_editor_list_ignores_the_open_file_and_dirty_mark(self) -> None:
+        resolved = resolve_context(
+            "Cursor.exe", "● docs/dev-log.md - context-badge - Cursor"
+        )
+        self.assertEqual(resolved.display, "docs/dev-log.md · context-badge")
+        self.assertEqual(resolved.list_surface, "context-badge")
+        self.assertEqual(resolved.list_label, "context-badge")
+
+    def test_editor_parts_split_em_dash_and_git_status(self) -> None:
+        resolved = resolve_context(
+            "code.exe",
+            "app.py (Working Tree) — context-badge - Visual Studio Code",
+        )
+        self.assertEqual(resolved.list_surface, "context-badge")
+        self.assertEqual(resolved.display, "app.py · context-badge")
 
     def test_browser_uses_tab_and_url_from_uia(self) -> None:
         raw = "飞书云文档 和另外 11 个页面 - 个人 - Microsoft Edge"

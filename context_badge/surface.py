@@ -56,6 +56,12 @@ _MEMORY_TAIL = re.compile(
 )
 _SLEEP_TAIL = re.compile(r"\s+-\s+睡眠\s*$")
 _CHAT_TITLE_PREFIX = re.compile(r"^Chat title\.\s*", re.IGNORECASE)
+_EDITOR_DIRTY = re.compile(r"^[●•○]\s+")
+_EDITOR_FILE_STATUS = re.compile(
+    r"\s+\((?:Working Tree|Untracked|Index|Staged|Modified)\)\s*$",
+    re.IGNORECASE,
+)
+_EDITOR_SPLIT = re.compile(r"\s+[-—–]\s+")
 
 
 @dataclass(frozen=True)
@@ -65,6 +71,7 @@ class ResolvedContext:
     display: str
     dwell_surface: str
     list_surface: str
+    list_label: str
 
 
 def strip_invisibles(text: str) -> str:
@@ -89,11 +96,12 @@ def editor_parts(executable: str, cleaned: str) -> tuple[str, str] | None:
     """Split `file - workspace` after the application suffix is gone."""
     if executable.lower() not in EDITOR_SUFFIXES:
         return None
-    if " - " not in cleaned:
+    text = _EDITOR_DIRTY.sub("", (cleaned or "").strip())
+    parts = [part.strip() for part in _EDITOR_SPLIT.split(text) if part.strip()]
+    if len(parts) < 2:
         return None
-    file_name, workspace = cleaned.rsplit(" - ", 1)
-    file_name = file_name.strip()
-    workspace = workspace.strip()
+    workspace = parts[-1]
+    file_name = _EDITOR_FILE_STATUS.sub("", parts[-2]).strip()
     if not file_name or not workspace:
         return None
     return file_name, workspace
@@ -124,13 +132,12 @@ def resolve_context(
     url_key = compact_url(snap.url)
 
     if chat and cleaned.lower() in AGENTS_TITLES:
-        return ResolvedContext(chat, chat, chat)
+        return ResolvedContext(chat, chat, chat, chat)
 
     if lower in BROWSER_SUFFIXES:
         display = tab or cleaned
-        dwell = display
         listed = url_key or display
-        return ResolvedContext(display, dwell, listed)
+        return ResolvedContext(display, display, listed, display)
 
     parts = editor_parts(lower, cleaned)
     if parts is not None:
@@ -138,12 +145,17 @@ def resolve_context(
         if file_tab:
             file_name = file_tab
         display = f"{file_name} · {workspace}"
-        return ResolvedContext(display, f"{file_name} - {workspace}", workspace)
+        return ResolvedContext(
+            display,
+            f"{file_name} - {workspace}",
+            workspace,
+            workspace,
+        )
 
     if chat:
-        return ResolvedContext(chat, chat, chat)
+        return ResolvedContext(chat, chat, chat, chat)
 
-    return ResolvedContext(cleaned, cleaned, cleaned)
+    return ResolvedContext(cleaned, cleaned, cleaned, cleaned)
 
 
 def _clean_title(executable: str, title: str) -> str:
@@ -165,6 +177,8 @@ def _clean_title(executable: str, title: str) -> str:
             if cleaned.endswith(suffix) and len(cleaned) > len(suffix):
                 cleaned = cleaned[: -len(suffix)].rstrip(" -—–")
                 break
+        if lower in EDITOR_SUFFIXES:
+            cleaned = _EDITOR_DIRTY.sub("", cleaned).strip()
         if lower == "explorer.exe":
             for suffix in EXPLORER_SUFFIXES:
                 if cleaned.endswith(suffix) and len(cleaned) > len(suffix):

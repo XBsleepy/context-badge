@@ -446,3 +446,123 @@ Execute the selected diff-tab commit-and-push action.
 ### 助手
 
 已提交并推送到 `feat/tab-todos`：README 叙事重写、四张宣传图、CHANGELOG 与开发日志。
+
+---
+
+## Turn 33 · 2026-08-16 22:02
+
+### 用户
+
+再提一个pr到main
+
+### 助手
+
+已打开针对 `main` 的 PR：https://github.com/XBsleepy/context-badge/pull/3
+
+---
+
+## Turn 34 · 2026-08-17 23:12
+
+### 用户
+
+在本repo新开一个分支，我们进行下面的工作:
+1. 更新doto/备注list栏，todo新增一个不随着window变化的(相当于一个固定的栏，base todo)
+2. list的字号太小了，最好和window context一样大
+3. 手动点击item再添加的方式有点不够灵活，最好能直接点击最下面的空行就新增一行。回车换行的话自动切到下一行item。
+
+### 助手
+
+已开分支 `feat/base-todo`。
+
+List 面板顶部新增固定的 **Base** 栏：不随前台窗口切换，适合放不绑在某一页上的待办。下面仍是当前窗口的备注和页面 todos。
+
+列表字号与徽章上的窗口标题一致（默认 13pt），行高跟着一起加。
+
+点每一组最下面的空行即可新建；编辑时按回车会保存并跳到下一行（中间插入一行，最后一行则进入底部空行）。原来的 `+ Add item` 按钮已去掉。
+
+用 `python -m context_badge` 或 `.\run.ps1` 打开 List 即可试。这次没有提交。
+
+---
+
+## Turn 35 · 2026-08-17 23:44
+
+### 用户
+
+现在我们做一些UI上的优化，比如颜色选择,边框等，看起来还很不fancy，我的想法是做成类似一个由上而下展开的"卷轴/聊天气泡"的形式，参考网络上的相关的图片/工具呈现形式，你也这么做一下。
+
+### 助手
+
+List 不再是直角方块，而是从徽章下面挂下来的圆角气泡：顶部有指向徽章的小三角，纸面圆角，上下各有一条卷轴杆。边框用 Colours 里的 Border，填充用 List 色。点 List 时会从上往下展开，再点则收起。
+
+圆角外的区域是镂空的，点不到。滚轮仍可滚动长列表。用 `python -m context_badge` 或 `.\run.ps1` 打开 List 即可看。这次没有提交。
+
+---
+
+## Turn 36 · 2026-08-18 00:02
+
+### 用户
+
+menu可以作为单独的弹出窗口方便后续扩展。
+color 的默认配色方案还是太丑了，考虑变成调色盘之类更高级的，或者新增一个部分，来一些预设的配色主题。
+然后这个框都太方正了，可以增加一些类似圆角之类的设置。
+
+### 助手
+
+菜单改成独立的圆角弹出窗口：主页仍是 Resize / Fix / Time analysis，下面多一页 Appearance，方便以后再加页面。
+
+Appearance 里有六套预设主题（默认 Ink：深墨底、暖白字、灰铜边），圆形色盘仍可单独改徽章 / List / 文字 / 边框。已保存的旧配色不会被覆盖，点一个主题即可换成新方案。
+
+徽章、右侧按钮条、菜单卡片和 List 气泡共用圆角，默认 12，可在 Appearance 里选 0 / 8 / 12 / 16 / 20。
+
+用 `python -m context_badge` 或 `.\run.ps1` 打开 Menu → Appearance › 即可试。这次没有提交。
+
+---
+
+## Turn 37 · 2026-08-18 00:31
+
+### 用户
+
+list中的base太丑了，去掉这一行字吧，或者为空时默认在输入框给一个提示tab。然后你再看看窗口提示策略，比如我现在在关注@docs/dev-log.md ,我的cursor窗口还记录了这个文件，而不是一个工作区一个，有点太细了，可以这样，我的todo list是根据工作区来，然后显式的用户可见的，也许需要这样多一个字段，注意兼容问题。
+
+### 助手
+
+List 顶部不再显示 Base 标题。没有全局待办时，第一行空输入会用灰色的 Base 当提示；点进去就能写。有条目之后提示会消失，和窗口列表之间仍有一条分隔。
+
+Cursor / VS Code 的待办按工作区存，换 `docs/dev-log.md` 这类文件不会另开一份列表。列表多了一个给人看的 `label` 字段（备注为空时显示工作区名）；徽章上仍可看到当前文件，计时也还是按文件。以前误存成 `文件 - 工作区` 的旧键会在打开时合并进工作区键，已有条目和备注会留下来。
+
+用 `python -m context_badge` 或 `.\run.ps1` 打开 List 即可试。这次没有提交。
+
+---
+
+## Turn 38 · 2026-08-18 01:55
+
+### 用户
+
+再修改一下，list下base区域不要叫base,
+而是提示"here you can.."
+中间的也改为提示
+下面的item也改为提示。
+当用户输入了时会消失的那种提示
+
+### 助手
+
+三处空着时都改成灰色的 Here you can… 提示：点进去还在，真正打字（或粘贴）后才消失；没写就离开不会存进去。
+
+- 顶部固定栏：Here you can keep items that stay with you
+- 中间备注：Here you can write a note for this place
+- 下面待办空行：Here you can add an item
+
+用 `python -m context_badge` 或 `.\run.ps1` 打开 List 即可看。这次没有提交。
+
+---
+
+## Turn 39 · 2026-08-18 02:00
+
+### 用户
+
+commit,push,提交pr
+
+### 助手
+
+已提交并推送到 `feat/base-todo`，并打开针对 `main` 的 PR：https://github.com/XBsleepy/context-badge/pull/4
+
