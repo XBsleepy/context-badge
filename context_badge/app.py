@@ -27,21 +27,29 @@ from .dwell_store import DwellStore
 from .layout import badge_metrics
 from .list_bar import GAP_FROM_BADGE, ListBar
 from .list_store import ListStore
+from .menu_popup import MenuPopup
 from .paths import config_path, dwell_active_path, dwell_log_path, lists_path
 from .surface import BROWSER_SUFFIXES, resolve_context
 from .text_layout import fit_text
 from .theme import (
-    COLOUR_PALETTE,
     DEFAULT_BACKGROUND,
+    DEFAULT_BORDER,
+    DEFAULT_CORNER_RADIUS,
     DEFAULT_LIST_BACKGROUND,
     DEFAULT_TEXT,
+    MAX_CORNER_RADIUS,
+    MIN_CORNER_RADIUS,
     TRANSPARENT,
     TRANSPARENT_KEY,
     blend_hex,
     bounded_int,
+    is_hex_color,
     is_transparent,
+    matching_theme_id,
     paint_color,
+    theme_by_id,
 )
+from .bubble import draw_rounded_panel
 from .uia import UiaSnapshot, inspect_window
 from .win32 import (
     GWL_EXSTYLE,
@@ -80,11 +88,6 @@ class ContextBadge:
     TAB_WIDTH = 46
     EDIT_WIDTH = TAB_COUNT * TAB_WIDTH
     UNLOCK_WIDTH = 72
-    MAIN_MENU_WIDTH = 200
-    COLOUR_MENU_WIDTH = 304
-    MENU_ROW_HEIGHT = 42
-    COLOUR_HEADER_HEIGHT = 38
-    COLOUR_ROW_HEIGHT = 54
     TOP_MARGIN = 18
     POLL_MS = 200
     LONG_PRESS_MS = 400
@@ -96,7 +99,7 @@ class ContextBadge:
             "background_color", DEFAULT_BACKGROUND
         )
         self.text_color = self.config.get("text_color", DEFAULT_TEXT)
-        self.border_color = self.config.get("border_color")
+        self.border_color = self.config.get("border_color", DEFAULT_BORDER)
         self.minimized = False
         self._suppress_taskbar_map = False
         self.hovered_tab: int | None = None
@@ -116,22 +119,19 @@ class ContextBadge:
         self._ensure_list_bar_config()
         self._ensure_lock_config()
         self._ensure_colour_config()
+        self._ensure_radius_config()
         blend_base = self._blend_base()
         self.secondary_text_color = blend_hex(blend_base, self.text_color, 0.68)
-        if not (
-            isinstance(self.border_color, str)
-            and self.border_color.startswith("#")
-            and len(self.border_color) == 7
-        ):
-            self.border_color = blend_hex(blend_base, self.text_color, 0.22)
+        if not is_hex_color(self.border_color):
+            self.border_color = DEFAULT_BORDER
         self.hover_color = blend_hex(blend_base, self.text_color, 0.12)
 
-        start_bg = paint_color(self.background_color)
         self.root = tk.Tk()
         self.root.title("Context Badge")
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
-        self.root.configure(bg=start_bg)
+        self.root.attributes("-transparentcolor", TRANSPARENT_KEY)
+        self.root.configure(bg=TRANSPARENT_KEY)
         self.root.geometry(
             f"{self.badge_width}x{self.badge_height}"
             f"+{(self.root.winfo_screenwidth() - self.badge_width) // 2}"
@@ -160,8 +160,8 @@ class ContextBadge:
             self.root,
             width=self.badge_width,
             height=self.badge_height,
-            bg=start_bg,
-            highlightthickness=1,
+            bg=TRANSPARENT_KEY,
+            highlightthickness=0,
             highlightbackground=self.border_color,
         )
         self.canvas.pack()
@@ -200,12 +200,13 @@ class ContextBadge:
         self.edit_window.title("Context Badge controls")
         self.edit_window.overrideredirect(True)
         self.edit_window.attributes("-topmost", True)
-        self.edit_window.configure(bg=start_bg)
+        self.edit_window.attributes("-transparentcolor", TRANSPARENT_KEY)
+        self.edit_window.configure(bg=TRANSPARENT_KEY)
         self.edit_canvas = tk.Canvas(
             self.edit_window,
             width=self.EDIT_WIDTH,
             height=self.badge_height,
-            bg=start_bg,
+            bg=TRANSPARENT_KEY,
             highlightthickness=0,
             cursor="hand2",
         )
@@ -238,33 +239,17 @@ class ContextBadge:
         self.hit_canvas.bind("<ButtonRelease-1>", self._finish_drag)
         self.hit_window.withdraw()
 
-        # The first level stays compact. All appearance controls live under the
-        # Colours second-level page. Close lives on the control strip. Drag the
-        # badge body (or long-press Menu) to move unless Fix is on.
-        self.edit_actions = [
-            ("◲  Resize badge", self._begin_resize, "#f3f5f7"),
-            ("◉  Colours  ›", self._open_colours, "#f3f5f7"),
-            ("◷  Time analysis", self._open_analysis, "#f3f5f7"),
-        ]
-        self.menu_page = "main"
-        self.menu_width = self.MAIN_MENU_WIDTH
-        self.menu_height = self.MENU_ROW_HEIGHT * len(self.edit_actions)
-        self.menu_window = tk.Toplevel(self.root)
-        self.menu_window.title("Context Badge Menu")
-        self.menu_window.overrideredirect(True)
-        self.menu_window.attributes("-topmost", True)
-        self.menu_canvas = tk.Canvas(
-            self.menu_window,
-            width=self.menu_width,
-            height=self.menu_height,
-            bg="#20232a",
-            highlightthickness=1,
-            highlightbackground="#454b57",
-            cursor="hand2",
+        # Appearance controls live in a standalone rounded popup so later
+        # pages can be added without crowding the badge.
+        self.menu = MenuPopup(
+            self.root,
+            on_action=self._on_menu_action,
+            on_theme=self._apply_colour_theme,
+            on_colour=self._set_colour,
+            on_radius=self._set_corner_radius,
         )
-        self.menu_canvas.pack()
-        self.menu_canvas.bind("<Button-1>", self._handle_menu_click)
-        self._render_menu()
+        self.menu.set_actions(self._menu_actions())
+        self.menu_open = False
 
         # A normal (non-tool) window that can sit on the taskbar while the
         # overlay is hidden. The badge itself stays TOOLWINDOW so it does not
@@ -298,8 +283,7 @@ class ContextBadge:
         self.edit_hwnd = user32.GetParent(edit_tk_hwnd) or edit_tk_hwnd
         hit_tk_hwnd = self.hit_window.winfo_id()
         self.hit_hwnd = user32.GetParent(hit_tk_hwnd) or hit_tk_hwnd
-        menu_tk_hwnd = self.menu_window.winfo_id()
-        self.menu_hwnd = user32.GetParent(menu_tk_hwnd) or menu_tk_hwnd
+        self.menu_hwnd = self.menu.hwnd
         taskbar_tk_hwnd = self.taskbar_window.winfo_id()
         self.taskbar_hwnd = user32.GetParent(taskbar_tk_hwnd) or taskbar_tk_hwnd
         self._prepare_taskbar_proxy()
@@ -326,7 +310,6 @@ class ContextBadge:
         self._attach_owned_overlays()
         self._make_edit_button_interactive()
         self._prepare_hit_catcher()
-        self._make_menu_interactive()
         self._apply_theme()
         self._apply_pointer_mode()
         self._apply_layout_metrics()
@@ -335,7 +318,7 @@ class ContextBadge:
         self.canvas.bind("<ButtonRelease-1>", self._finish_drag)
         user32.ShowWindow(self.overlay_hwnd, SW_SHOWNOACTIVATE)
         user32.ShowWindow(self.edit_hwnd, SW_SHOWNOACTIVATE)
-        self.menu_window.withdraw()
+        self.menu.hide()
         if self.saved_position is not None:
             self._set_position(*self.saved_position)
         self.dwell = DwellTracker(
@@ -414,8 +397,32 @@ class ContextBadge:
         if self.config.get("list_background_color") != list_bg:
             self.config["list_background_color"] = list_bg
             changed = True
+        if not is_hex_color(self.text_color):
+            self.text_color = DEFAULT_TEXT
+            changed = True
+        if self.config.get("text_color") != self.text_color:
+            self.config["text_color"] = self.text_color
+            changed = True
+        if not is_hex_color(self.border_color):
+            self.border_color = DEFAULT_BORDER
+            changed = True
+        if self.config.get("border_color") != self.border_color:
+            self.config["border_color"] = self.border_color
+            changed = True
         if changed:
             self._save_config()
+
+    def _ensure_radius_config(self) -> None:
+        radius = bounded_int(
+            self.config.get("corner_radius"),
+            DEFAULT_CORNER_RADIUS,
+            MIN_CORNER_RADIUS,
+            MAX_CORNER_RADIUS,
+        )
+        if self.config.get("corner_radius") != radius:
+            self.config["corner_radius"] = radius
+            self._save_config()
+        self.corner_radius = radius
 
     def _blend_base(self) -> str:
         if is_transparent(self.background_color):
@@ -529,7 +536,7 @@ class ContextBadge:
         set_window_owner(self.edit_hwnd, GWLP_HWNDPARENT, self.overlay_hwnd)
         if hasattr(self, "hit_hwnd"):
             set_window_owner(self.hit_hwnd, GWLP_HWNDPARENT, self.overlay_hwnd)
-        set_window_owner(self.menu_hwnd, GWLP_HWNDPARENT, self.overlay_hwnd)
+        set_window_owner(self.menu.hwnd, GWLP_HWNDPARENT, self.overlay_hwnd)
         if hasattr(self, "list_bar"):
             set_window_owner(self.list_bar.hwnd, GWLP_HWNDPARENT, self.overlay_hwnd)
 
@@ -613,24 +620,10 @@ class ContextBadge:
             0,
             SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
         )
-        if getattr(self, "menu_open", False):
-            user32.SetWindowPos(
-                self.menu_hwnd,
-                HWND_TOPMOST,
-                0,
-                0,
-                0,
-                0,
-                SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
-            )
+        if getattr(self, "menu_open", False) and hasattr(self, "menu"):
+            self.menu.raise_popup()
         if hasattr(self, "list_bar"):
             self.list_bar.raise_bar()
-
-    def _make_menu_interactive(self) -> None:
-        style = user32.GetWindowLongW(self.menu_hwnd, GWL_EXSTYLE)
-        style |= WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE
-        style &= ~WS_EX_TRANSPARENT
-        user32.SetWindowLongW(self.menu_hwnd, GWL_EXSTYLE, style)
 
     def _tab_index_at(self, x: int) -> int:
         if self.position_locked:
@@ -766,9 +759,6 @@ class ContextBadge:
         if self.resize_mode:
             self._end_interaction()
             return
-        if not self.menu_open:
-            self.menu_page = "main"
-            self._render_menu()
         self._set_menu_open(not self.menu_open)
 
     def _toggle_list_bar(self) -> None:
@@ -808,7 +798,8 @@ class ContextBadge:
         if hasattr(self, "hit_hwnd"):
             user32.ShowWindow(self.hit_hwnd, SW_HIDE)
             self.hit_window.withdraw()
-        user32.ShowWindow(self.menu_hwnd, SW_HIDE)
+        user32.ShowWindow(self.menu.hwnd, SW_HIDE)
+        self.menu.hide()
         self.list_bar.hide()
         self._prepare_taskbar_proxy()
         self.taskbar_window.deiconify()
@@ -849,19 +840,25 @@ class ContextBadge:
         self.list_bar.show()
         self._apply_theme()
 
-    def _main_menu_rows(self) -> list[tuple[str, object, str]]:
+    def _menu_actions(self) -> list[tuple[str, str]]:
         return [
-            ("\u25f2  Resize badge", self._begin_resize, "#f3f5f7"),
-            ("\u2610  Fix", self._toggle_lock, "#f3f5f7"),
-            ("\u25c9  Colours  \u203a", self._open_colours, "#f3f5f7"),
-            ("\u25f7  Time analysis", self._open_analysis, "#f3f5f7"),
+            ("resize", "Resize badge"),
+            ("fix", "Fix"),
+            ("analysis", "Time analysis"),
         ]
+
+    def _on_menu_action(self, action_id: str) -> None:
+        if action_id == "resize":
+            self._begin_resize()
+        elif action_id == "fix":
+            self._toggle_lock()
+        elif action_id == "analysis":
+            self._open_analysis()
 
     def _toggle_lock(self) -> None:
         self.position_locked = not self.position_locked
         self.config["position_locked"] = self.position_locked
         self._save_config()
-        self.menu_page = "main"
         self._set_menu_open(False)
         self._apply_theme()
         self._apply_pointer_mode()
@@ -869,121 +866,6 @@ class ContextBadge:
         self._update_app_label()
         if hasattr(self, "overlay_hwnd"):
             self._set_position(self.root.winfo_x(), self.root.winfo_y())
-
-    def _render_menu(self) -> None:
-        self.menu_canvas.delete("all")
-        if self.menu_page == "main":
-            self.edit_actions = self._main_menu_rows()
-            self.menu_width = self.MAIN_MENU_WIDTH
-            self.menu_height = self.MENU_ROW_HEIGHT * len(self.edit_actions)
-            self.menu_canvas.configure(
-                width=self.menu_width, height=self.menu_height
-            )
-            for index, (label, _callback, colour) in enumerate(self.edit_actions):
-                row_top = index * self.MENU_ROW_HEIGHT
-                if index:
-                    self.menu_canvas.create_line(
-                        10,
-                        row_top,
-                        self.menu_width - 10,
-                        row_top,
-                        fill="#3b404b",
-                    )
-                self.menu_canvas.create_text(
-                    16,
-                    row_top + self.MENU_ROW_HEIGHT // 2,
-                    anchor="w",
-                    text=label,
-                    fill=colour,
-                    font=("Segoe UI Semibold", 11),
-                )
-        else:
-            self._render_colour_menu()
-        if hasattr(self, "overlay_hwnd"):
-            self._set_position(self.root.winfo_x(), self.root.winfo_y())
-
-    def _render_colour_menu(self) -> None:
-        self.menu_width = self.COLOUR_MENU_WIDTH
-        self.menu_height = self.COLOUR_HEADER_HEIGHT + self.COLOUR_ROW_HEIGHT * 4
-        self.menu_canvas.configure(width=self.menu_width, height=self.menu_height)
-        self.menu_canvas.create_text(
-            14,
-            self.COLOUR_HEADER_HEIGHT // 2,
-            anchor="w",
-            text="‹  Colours",
-            fill="#aab3c2",
-            font=("Segoe UI Semibold", 10),
-        )
-        self.menu_canvas.create_line(
-            10,
-            self.COLOUR_HEADER_HEIGHT,
-            self.menu_width - 10,
-            self.COLOUR_HEADER_HEIGHT,
-            fill="#3b404b",
-        )
-
-        properties = (
-            ("Background", self.background_color, True),
-            ("List", self.list_background_color, True),
-            ("Text", self.text_color, False),
-            ("Border", self.border_color, False),
-        )
-        swatch_x = 106
-        swatch_size = 17
-        swatch_gap = 5
-        for row, (label, selected, allow_clear) in enumerate(properties):
-            row_top = self.COLOUR_HEADER_HEIGHT + row * self.COLOUR_ROW_HEIGHT
-            self.menu_canvas.create_text(
-                14,
-                row_top + self.COLOUR_ROW_HEIGHT // 2,
-                anchor="w",
-                text=label,
-                fill="#f3f5f7",
-                font=("Segoe UI", 10),
-            )
-            if allow_clear:
-                clear_on = is_transparent(selected)
-                self.menu_canvas.create_rectangle(
-                    80,
-                    row_top + 18,
-                    97,
-                    row_top + 35,
-                    fill="#20232a",
-                    outline="#ffffff" if clear_on else "#596170",
-                    width=2 if clear_on else 1,
-                )
-                self.menu_canvas.create_line(
-                    82,
-                    row_top + 33,
-                    95,
-                    row_top + 20,
-                    fill="#ff8f8f",
-                    width=2,
-                )
-            for index, colour in enumerate(COLOUR_PALETTE):
-                column = index % 8
-                palette_row = index // 8
-                x1 = swatch_x + column * (swatch_size + swatch_gap)
-                y1 = row_top + 6 + palette_row * (swatch_size + swatch_gap)
-                chosen = (
-                    not is_transparent(selected)
-                    and colour.lower() == str(selected).lower()
-                )
-                outline = "#ffffff" if chosen else "#596170"
-                width = 2 if chosen else 1
-                self.menu_canvas.create_rectangle(
-                    x1,
-                    y1,
-                    x1 + swatch_size,
-                    y1 + swatch_size,
-                    fill=colour,
-                    outline=outline,
-                    width=width,
-                )
-
-    def _open_colours(self) -> None:
-        self.menu_page = "colours"
-        self._render_menu()
 
     def _open_analysis(self) -> None:
         self._set_menu_open(False)
@@ -1006,60 +888,32 @@ class ContextBadge:
                 records.append(active)
         return records
 
-    def _handle_menu_click(self, event: tk.Event) -> None:
-        if self.menu_page == "main":
-            index = event.y // self.MENU_ROW_HEIGHT
-            if 0 <= index < len(self.edit_actions):
-                self.edit_actions[index][1]()
-            return
-
-        if event.y < self.COLOUR_HEADER_HEIGHT:
-            self.menu_page = "main"
-            self._render_menu()
-            return
-
-        row = (event.y - self.COLOUR_HEADER_HEIGHT) // self.COLOUR_ROW_HEIGHT
-        local_y = (event.y - self.COLOUR_HEADER_HEIGHT) % self.COLOUR_ROW_HEIGHT
-        keys = (
-            "background_color",
-            "list_background_color",
-            "text_color",
-            "border_color",
-        )
-        if not 0 <= row < len(keys):
-            return
-        if row < 2 and 80 <= event.x <= 97 and 18 <= local_y <= 35:
-            self._set_colour(keys[row], TRANSPARENT)
-            return
-
-        swatch_x = 106
-        step = 22
-        column = (event.x - swatch_x) // step
-        palette_row = (local_y - 6) // step
-        within_x = 0 <= (event.x - swatch_x) % step <= 17
-        within_y = 0 <= (local_y - 6) % step <= 17
-        swatch = palette_row * 8 + column
-        if (
-            0 <= column < 8
-            and 0 <= palette_row < 2
-            and within_x
-            and within_y
-            and 0 <= swatch < len(COLOUR_PALETTE)
-        ):
-            self._set_colour(keys[row], COLOUR_PALETTE[swatch])
-
     def _set_menu_open(self, open_: bool) -> None:
         self.menu_open = open_
         if open_:
-            self.menu_window.deiconify()
-            # Some Tk builds recreate native state while deiconifying.
+            self._sync_menu()
             self._attach_owned_overlays()
-            user32.ShowWindow(self.menu_hwnd, SW_SHOWNOACTIVATE)
-            self.menu_window.lift()
+            if hasattr(self, "overlay_hwnd"):
+                self._set_position(self.root.winfo_x(), self.root.winfo_y())
+            self.menu.show()
         else:
-            self.menu_window.withdraw()
+            self.menu.hide()
         self._update_edit_icon()
         self._raise_edit_control()
+
+    def _sync_menu(self) -> None:
+        if not hasattr(self, "menu"):
+            return
+        self.menu.set_actions(self._menu_actions())
+        self.menu.apply_chrome(
+            fill=self.list_background_color,
+            text=self.text_color,
+            muted=self.secondary_text_color,
+            border=self.border_color,
+            radius=self.corner_radius,
+            background=self.background_color,
+            list_background=self.list_background_color,
+        )
 
     def _begin_resize(self) -> None:
         self._set_menu_open(False)
@@ -1071,6 +925,33 @@ class ContextBadge:
         self.canvas.itemconfigure(self.resize_handle, state="normal")
         self._update_app_label()
 
+    def _apply_colour_theme(self, theme_id: str) -> None:
+        theme = theme_by_id(theme_id)
+        if theme is None:
+            return
+        self.background_color = theme.background
+        self.list_background_color = theme.list_background
+        self.text_color = theme.text
+        self.border_color = theme.border
+        self.config["background_color"] = theme.background
+        self.config["list_background_color"] = theme.list_background
+        self.config["text_color"] = theme.text
+        self.config["border_color"] = theme.border
+        self.config["colour_theme"] = theme.id
+        self._apply_theme()
+        self._save_config()
+
+    def _set_corner_radius(self, radius: int) -> None:
+        self.corner_radius = bounded_int(
+            radius, DEFAULT_CORNER_RADIUS, MIN_CORNER_RADIUS, MAX_CORNER_RADIUS
+        )
+        self.config["corner_radius"] = self.corner_radius
+        self._save_config()
+        self._apply_theme()
+        self._apply_layout_metrics()
+        if hasattr(self, "overlay_hwnd"):
+            self._set_position(self.root.winfo_x(), self.root.winfo_y())
+
     def _set_colour(self, key: str, selected: str) -> None:
         if key not in {
             "background_color",
@@ -1081,41 +962,36 @@ class ContextBadge:
             return
         setattr(self, key, selected)
         self.config[key] = selected
+        matched = matching_theme_id(
+            self.background_color,
+            self.list_background_color,
+            self.text_color,
+            self.border_color,
+        )
+        if matched:
+            self.config["colour_theme"] = matched
+        else:
+            self.config.pop("colour_theme", None)
         self._apply_theme()
         self._save_config()
-        self._render_menu()
 
     def _apply_theme(self) -> None:
         blend_base = self._blend_base()
         self.secondary_text_color = blend_hex(blend_base, self.text_color, 0.68)
         self.hover_color = blend_hex(blend_base, self.text_color, 0.12)
-        transparent_now = (
-            is_transparent(self.background_color) and not self.resize_mode
-        )
-        if transparent_now:
-            body_colour = TRANSPARENT_KEY
-        elif is_transparent(self.background_color):
-            body_colour = DEFAULT_BACKGROUND
-        else:
-            body_colour = str(self.background_color)
-        self.root.attributes(
-            "-transparentcolor", TRANSPARENT_KEY if transparent_now else ""
-        )
-        self.root.configure(bg=body_colour)
-        hide_border = transparent_now and self.position_locked
+        self.root.attributes("-transparentcolor", TRANSPARENT_KEY)
+        self.root.configure(bg=TRANSPARENT_KEY)
         self.canvas.configure(
-            bg=body_colour,
-            highlightthickness=0 if hide_border else 1,
+            bg=TRANSPARENT_KEY,
+            highlightthickness=0,
             highlightbackground=self.border_color,
         )
         self.canvas.itemconfigure(self.app_text, fill=self.secondary_text_color)
         self.canvas.itemconfigure(self.title_text, fill=self.text_color)
-        strip_colour = body_colour
-        self.edit_window.attributes(
-            "-transparentcolor", TRANSPARENT_KEY if transparent_now else ""
-        )
-        self.edit_window.configure(bg=strip_colour)
-        self.edit_canvas.configure(bg=strip_colour)
+        self.edit_window.attributes("-transparentcolor", TRANSPARENT_KEY)
+        self.edit_window.configure(bg=TRANSPARENT_KEY)
+        self.edit_canvas.configure(bg=TRANSPARENT_KEY)
+        self._draw_badge_chrome()
         self._update_edit_icon()
         self._sync_hit_catcher()
         if hasattr(self, "list_bar"):
@@ -1123,7 +999,50 @@ class ContextBadge:
                 background=self.list_background_color,
                 text=self.text_color,
                 muted=self.secondary_text_color,
+                border=self.border_color,
             )
+        self._sync_menu()
+
+    def _draw_badge_chrome(self) -> None:
+        self.canvas.delete("chrome")
+        ghost = is_transparent(self.background_color) and not self.resize_mode
+        hide_border = ghost and self.position_locked
+        fill = TRANSPARENT_KEY if ghost else paint_color(self.background_color)
+        outline = fill if hide_border else self.border_color
+        body_w = self._hit_body_width() + 1
+        radius = self.corner_radius
+        if radius <= 0:
+            self.canvas.create_rectangle(
+                0,
+                0,
+                body_w,
+                self.badge_height,
+                fill=fill,
+                outline=outline,
+                width=1 if outline != fill else 0,
+                tags="chrome",
+            )
+        else:
+            draw_rounded_panel(
+                self.canvas,
+                1,
+                1,
+                body_w,
+                self.badge_height - 1,
+                fill=fill,
+                outline=outline,
+                radius=radius,
+                nw=True,
+                ne=False,
+                se=False,
+                sw=True,
+                width=1 if outline != fill else 0,
+                tags="chrome",
+            )
+        try:
+            self.canvas.tag_lower("chrome")
+        except tk.TclError:
+            pass
 
     def _quit(self) -> None:
         self._cancel_press_job()
@@ -1155,14 +1074,73 @@ class ContextBadge:
         ghost = is_transparent(self.background_color) and not self.resize_mode
         tab_fill = TRANSPARENT_KEY if ghost else paint_color(self.background_color)
         strip_width = self._strip_width()
+        radius = self.corner_radius
+        outline = tab_fill if ghost else self.border_color
+
+        def paint_back(fill: str) -> None:
+            if ghost:
+                return
+            if radius <= 0:
+                canvas.create_rectangle(
+                    0,
+                    0,
+                    strip_width,
+                    height,
+                    fill=fill,
+                    outline=outline,
+                )
+                return
+            draw_rounded_panel(
+                canvas,
+                0,
+                1,
+                strip_width - 1,
+                height - 1,
+                fill=fill,
+                outline=outline,
+                radius=radius,
+                nw=False,
+                ne=True,
+                se=True,
+                sw=False,
+                width=1,
+            )
+
+        def paint_tab_fill(x0: int, x1: int, last: bool) -> None:
+            if ghost:
+                return
+            if last and radius > 0:
+                draw_rounded_panel(
+                    canvas,
+                    x0,
+                    1,
+                    strip_width - 1,
+                    height - 1,
+                    fill=self.hover_color,
+                    outline=self.hover_color,
+                    radius=radius,
+                    nw=False,
+                    ne=True,
+                    se=True,
+                    sw=False,
+                    width=0,
+                )
+                return
+            canvas.create_rectangle(
+                x0,
+                1 if radius > 0 else 0,
+                x1 if not last else strip_width,
+                height - (1 if radius > 0 else 0),
+                fill=self.hover_color,
+                outline=self.hover_color,
+            )
+
         if self.position_locked:
             hovered = self.hovered_tab == 0
             fill = tab_fill
             if not ghost and hovered:
                 fill = self.hover_color
-            canvas.create_rectangle(
-                0, 0, strip_width, height, fill=fill, outline=fill
-            )
+            paint_back(fill)
             colour = "#8fc0ff" if hovered else self.text_color
             has_label = height >= 56
             cx = strip_width // 2
@@ -1181,15 +1159,6 @@ class ContextBadge:
                     text="Unlock",
                     fill=colour if hovered else self.secondary_text_color,
                     font=self.tab_label_font,
-                )
-            if not ghost:
-                canvas.create_rectangle(
-                    0,
-                    0,
-                    strip_width - 1,
-                    height - 1,
-                    fill="",
-                    outline=self.border_color,
                 )
             return
         labels = (
@@ -1210,6 +1179,7 @@ class ContextBadge:
             self.text_color,
             "#ff8f8f",
         )
+        paint_back(tab_fill)
         for index in range(self.TAB_COUNT):
             x0 = index * self.TAB_WIDTH
             x1 = x0 + self.TAB_WIDTH
@@ -1217,17 +1187,8 @@ class ContextBadge:
             active = (index == 0 and (editing or moving or self.menu_open)) or (
                 index == 1 and list_open
             )
-            fill = tab_fill
             if not ghost and (hovered or active):
-                fill = self.hover_color
-            canvas.create_rectangle(
-                x0,
-                0,
-                x1,
-                height,
-                fill=fill,
-                outline=fill,
-            )
+                paint_tab_fill(x0, x1, index == self.TAB_COUNT - 1)
             if index and not ghost:
                 canvas.create_line(
                     x0,
@@ -1263,15 +1224,6 @@ class ContextBadge:
                     fill=label_colour,
                     font=self.tab_label_font,
                 )
-        if not ghost:
-            canvas.create_rectangle(
-                0,
-                0,
-                strip_width - 1,
-                height - 1,
-                fill="",
-                outline=self.border_color,
-            )
 
     def _update_app_label(self) -> None:
         if self.resize_mode:
@@ -1290,12 +1242,22 @@ class ContextBadge:
             size=max(7, min(9, self.layout.app_font_size - 2))
         )
         if hasattr(self, "list_bar"):
+            list_radius = (
+                0
+                if self.corner_radius == 0
+                else max(8, self.corner_radius)
+            )
             self.list_bar.apply_layout(
                 font_size=self.layout.list_font_size,
                 count_font_size=self.layout.list_count_font_size,
                 header_height=self.layout.list_header_height,
                 row_height=self.layout.list_row_height,
-                add_height=self.layout.list_add_height,
+                section_height=self.layout.list_section_height,
+                max_body=self.layout.list_max_body,
+                radius=list_radius,
+                tail_height=self.layout.list_tail_height,
+                rod_height=self.layout.list_rod_height,
+                chrome_pad=self.layout.list_chrome_pad,
             )
         self.canvas.coords(
             self.app_text, self.layout.padding_x, self.layout.app_y
@@ -1311,6 +1273,7 @@ class ContextBadge:
         self.edit_canvas.configure(
             width=self._strip_width(), height=self.badge_height
         )
+        self._draw_badge_chrome()
         self._draw_control_strip()
 
     def _render_text(self, app_label: str, title: str) -> None:
@@ -1454,20 +1417,9 @@ class ContextBadge:
             menu_y = list_y + self.list_bar.height() + 6
         else:
             menu_y = y + self.badge_height + 6
-        menu_x = x + self.badge_width - self.menu_width
-        self.menu_window.geometry(
-            f"{self.menu_width}x{self.menu_height}+{menu_x}+{menu_y}"
-        )
-        if self.menu_open:
-            user32.SetWindowPos(
-                self.menu_hwnd,
-                HWND_TOPMOST,
-                menu_x,
-                menu_y,
-                0,
-                0,
-                SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
-            )
+        if hasattr(self, "menu"):
+            menu_x = x + self.badge_width - self.menu.width
+            self.menu.set_position(menu_x, menu_y)
 
     def _move_to_active_monitor(self, foreground: int) -> None:
         if self.minimized:
@@ -1573,7 +1525,7 @@ class ContextBadge:
             self.list_bar.set_key(
                 executable,
                 resolved.list_surface,
-                label=resolved.display,
+                label=resolved.list_label,
             )
             self._move_to_active_monitor(foreground)
 
