@@ -8,8 +8,9 @@ All notable changes to Context Badge are documented here.
 
 - A fixed Base todo bar at the top of the list panel that stays the same across windows, stored in the existing dual-backup lists file.
 
-- A hanging scroll / chat-bubble chrome on the list panel: top tail under the badge, rounded paper, end rods, and a short unroll animation. List fill and Border colours paint it.
+- A hanging paper-bubble chrome on the list panel: top tail under the badge, inner bevel, and a short unroll animation. List fill and Border colours paint it.
 - A standalone rounded menu popup with an Appearance page: named colour themes, a corner-radius control, and a circular palette.
+- An optional Codex v2 pet overlay. Default is `qiuli` from `%USERPROFILE%\.codex\pets`, idle loop, with Menu → Pet Place/Size drag.
 
 ### Changed
 
@@ -18,8 +19,11 @@ All notable changes to Context Badge are documented here.
 - Click the trailing empty row to add an item; Enter saves and moves to the next row.
 - Default fills are the Ink theme (`#16181d` / `#101218` / `#f4f1ea` / `#8a8175`). Existing saved colours are not rewritten.
 - Badge, control strip, menu, and list follow a stored `corner_radius` (default 12).
-- The Base list has no heading; empty rows use *Here you can…* placeholders that disappear when you type (global items, the note, and new todos).
+- The Base list has no heading; *Here you can…* hints show only while a field is empty and unfocused, then return if you leave without typing.
 - Cursor / VS Code todos key off the workspace and store a visible `label`. Old `file - workspace` list keys merge into the workspace key. The badge still shows the open file.
+- The pet overlay paints through a native layered window so idle frames show at full size with per-pixel alpha.
+- `Menu` → `Pet ›` **Place** / **Size** are drag modes. Dragging the pet also moves the badge.
+- Pet mouse handling is queued onto the Tk loop so dragging the sprite does not crash the interpreter.
 
 ## [0.2.0] - 2026-08-16
 

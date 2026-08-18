@@ -8,7 +8,9 @@ from context_badge.paths import (
     config_path,
     dwell_active_path,
     dwell_log_path,
+    find_pet_folder,
     lists_path,
+    pet_search_dirs,
 )
 
 
@@ -67,6 +69,19 @@ class PathTests(unittest.TestCase):
             path,
             Path(r"C:\Users\Test\AppData\Local") / "Context Badge" / "lists.json",
         )
+
+    def test_pet_search_prefers_local_then_codex(self) -> None:
+        with patch.object(sys, "frozen", False, create=True):
+            dirs = pet_search_dirs()
+        self.assertEqual(dirs[0].name, "pets")
+        self.assertEqual(dirs[-1], Path.home() / ".codex" / "pets")
+
+    def test_find_pet_folder_reads_codex_pets(self) -> None:
+        folder = find_pet_folder("qiuli")
+        if folder is None:
+            self.skipTest("qiuli is not installed under ~/.codex/pets")
+        self.assertTrue((folder / "pet.json").is_file())
+        self.assertTrue((folder / "spritesheet.webp").is_file())
 
 
 if __name__ == "__main__":

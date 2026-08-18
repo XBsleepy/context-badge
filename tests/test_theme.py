@@ -87,6 +87,7 @@ class MenuPopupModuleTests(unittest.TestCase):
 
         self.assertEqual(menu_popup.COLOUR_THEMES, COLOUR_THEMES)
         self.assertEqual(menu_popup.RADIUS_CHOICES, RADIUS_CHOICES)
+        self.assertEqual(menu_popup.PET_WIDTH, menu_popup.MAIN_WIDTH)
 
 
 if __name__ == "__main__":
