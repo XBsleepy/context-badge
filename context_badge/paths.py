@@ -50,3 +50,30 @@ def lists_path() -> Path:
     if is_frozen():
         return _runtime_dir() / "lists.json"
     return _runtime_dir() / ".context-badge-lists.json"
+
+
+def local_pets_dir() -> Path:
+    """Pets shipped with the app or dropped next to preferences."""
+    return _runtime_dir() / "pets"
+
+
+def codex_pets_dir() -> Path:
+    """Codex custom pets live under the user profile."""
+    return Path.home() / ".codex" / "pets"
+
+
+def pet_search_dirs() -> tuple[Path, ...]:
+    """Local pets first, then the shared Codex pet folder."""
+    return (local_pets_dir(), codex_pets_dir())
+
+
+def find_pet_folder(pet_id: str) -> Path | None:
+    """Return the folder that contains ``pet.json`` for ``pet_id``."""
+    name = str(pet_id or "").strip()
+    if not name:
+        return None
+    for root in pet_search_dirs():
+        folder = root / name
+        if (folder / "pet.json").is_file():
+            return folder
+    return None

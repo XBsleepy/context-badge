@@ -80,7 +80,9 @@ Stop with the `Close` tab, or `Ctrl+C` in the terminal that launched it.
 Four tabs sit on the right edge: `Menu`, `List`, `Hide`, `Close`. Drag the
 badge body to move it. Long-press `Menu` is a second handle; a short click
 opens a standalone rounded menu. `Appearance ›` is a second page in that
-popup, so later pages can be added without crowding the badge.
+popup, so later pages can be added without crowding the badge. `Pet ›` has
+**Place** and **Size**: pick one, then drag the pet. Dragging the pet itself
+also moves the badge, same as dragging the box.
 
 ### Fix
 
@@ -116,11 +118,13 @@ Transparent is a fill value (`transparent`), not a separate flag. Old
 ### List
 
 `List` shows or hides a todo panel under the badge. Hidden, it takes no space.
-It hangs from the badge as a rounded chat-bubble / scroll: a top tail, paper
-body, and end rods, using the List fill and Border colours. Opening unrolls it
-downward.
+It hangs from the badge as a rounded paper bubble: a top tail, an inner
+bevel, and a short unroll animation, using the List fill and Border colours.
+Opening unrolls it downward.
 
-The panel has two layers, each with a muted hint that stays until you type:
+Empty rows and the note show a muted *Here you can…* hint only while they are
+idle. Clicking a field clears the hint so you can type; leaving it empty
+brings the hint back. Typed text stays.
 
 - A fixed inbox at the top that does not follow the foreground window:
   *Here you can keep items that stay with you*
@@ -143,6 +147,28 @@ either group to add an item. Enter saves the line and moves to the next row
 Rows can be checked, edited, and deleted. Checked items stay. The header is an
 editable note; empty notes are not stored. Empty lists with no note are not
 written to disk.
+
+### Pet
+
+If a Codex v2 pet named `qiuli` is installed at
+`%USERPROFILE%\.codex\pets\qiuli`, the badge perches it on top and plays the
+idle loop. The sprite uses per-pixel alpha. Opaque pixels are a drag handle
+(transparent padding still click-through). Default size is half atlas so it
+can sit on the 72 px badge. `Menu` → `Pet ›` → **Place** then drag to set
+the offset from the badge; **Size** then drag to scale 25–100%. Changing
+size re-scales the already-decoded atlas; it does not decode the WebP again.
+
+Preferences in `.context-badge.json` (or `%LOCALAPPDATA%\Context Badge` when
+packaged):
+
+- `pet_enabled` (default true)
+- `pet_id` (`qiuli`)
+- `pet_placement` (`perch_top`, or `attach_left` / `attach_right`; used until you drag Place)
+- `pet_scale_percent` (25–100, default 50)
+- `pet_offset_x` / `pet_offset_y` (pixel offset from the badge, set by Place)
+
+The player already has a state machine for waiting, working, look-at-pointer,
+and one-shots; only idle is driven in this pass.
 
 ### Time analysis
 
@@ -198,10 +224,16 @@ context_badge/
 ├── dwell_report.py     app totals and day slices
 ├── dwell_store.py      dual-backup JSON/JSONL persistence
 ├── layout.py           size-dependent type and spacing
-├── bubble.py           hanging scroll-bubble outline
+├── bubble.py           hanging paper-bubble outline
 ├── menu_popup.py       standalone rounded menu and Appearance page
 ├── list_bar.py         todo panel with Base and per-tab lists
 ├── list_store.py       dual-backup todo persistence
+├── pet_spec.py         Codex v2 clip table and look-cell map
+├── pet_machine.py      activity / one-shot / look state machine
+├── pet_place.py        perch-top and side-attach layouts
+├── pet_atlas.py        crop, scale, and cache atlas cells
+├── pet_overlay.py      layered idle sprite that follows the badge
+├── wic_image.py        WebP/PNG decode via Windows Imaging Component
 ├── paths.py            source vs packaged config locations
 ├── surface.py          page labels from titles and UI Automation
 ├── text_layout.py      measured wrapping and ellipsis

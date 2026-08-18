@@ -28,7 +28,22 @@ from .layout import badge_metrics
 from .list_bar import GAP_FROM_BADGE, ListBar
 from .list_store import ListStore
 from .menu_popup import MenuPopup
-from .paths import config_path, dwell_active_path, dwell_log_path, lists_path
+from .paths import (
+    config_path,
+    dwell_active_path,
+    dwell_log_path,
+    find_pet_folder,
+    lists_path,
+)
+from .pet_overlay import PetOverlay
+from .pet_place import (
+    BadgeAnchor,
+    PetSize,
+    keep_sit_offset,
+    normalize_placement,
+    normalize_scale_percent,
+    relative_offset,
+)
 from .surface import BROWSER_SUFFIXES, resolve_context
 from .text_layout import fit_text
 from .theme import (
@@ -89,6 +104,7 @@ class ContextBadge:
     EDIT_WIDTH = TAB_COUNT * TAB_WIDTH
     UNLOCK_WIDTH = 72
     TOP_MARGIN = 18
+    DEFAULT_PET_ID = "qiuli"
     POLL_MS = 200
     LONG_PRESS_MS = 400
     DRAG_THRESHOLD_PX = 8
@@ -117,6 +133,7 @@ class ContextBadge:
         )
         self._ensure_dwell_config()
         self._ensure_list_bar_config()
+        self._ensure_pet_config()
         self._ensure_lock_config()
         self._ensure_colour_config()
         self._ensure_radius_config()
@@ -247,6 +264,7 @@ class ContextBadge:
             on_theme=self._apply_colour_theme,
             on_colour=self._set_colour,
             on_radius=self._set_corner_radius,
+            on_pet_action=self._on_pet_action,
         )
         self.menu.set_actions(self._menu_actions())
         self.menu_open = False
@@ -271,6 +289,7 @@ class ContextBadge:
             on_expand_changed=self._on_list_expand,
             on_geometry_changed=self._on_list_geometry,
         )
+        self.pet = PetOverlay(self.root, on_pointer=self._on_pet_pointer)
 
         # Tk creates a child drawing HWND inside a native top-level wrapper.
         # Extended window styles must be applied to the wrapper, otherwise the
@@ -297,6 +316,12 @@ class ContextBadge:
         self.current_title = "Starting…"
         self.move_mode = False
         self.resize_mode = False
+        self.pet_place_mode = False
+        self.pet_size_mode = False
+        self._pet_press: tuple[int, int] | None = None
+        self._pet_dragging = False
+        self._pet_size_origin: tuple[int, int, int] | None = None
+        self._pet_place_origin: tuple[int, int, tuple[int, int]] | None = None
         self.menu_open = False
         self._press_job: str | None = None
         self._press_origin: tuple[int, int] | None = None
@@ -308,6 +333,7 @@ class ContextBadge:
         self.resize_origin = (0, 0, self.badge_width, self.badge_height)
         self.saved_position = self._load_position()
         self._attach_owned_overlays()
+        self._boot_pet()
         self._make_edit_button_interactive()
         self._prepare_hit_catcher()
         self._apply_theme()
@@ -436,6 +462,59 @@ class ContextBadge:
             self._save_config()
         self.list_bar_expanded = expanded
 
+    def _ensure_pet_config(self) -> None:
+        changed = False
+        enabled = bool(self.config.get("pet_enabled", True))
+        if self.config.get("pet_enabled") != enabled:
+            self.config["pet_enabled"] = enabled
+            changed = True
+        pet_id = str(self.config.get("pet_id") or self.DEFAULT_PET_ID).strip()
+        if not pet_id:
+            pet_id = self.DEFAULT_PET_ID
+        if self.config.get("pet_id") != pet_id:
+            self.config["pet_id"] = pet_id
+            changed = True
+        placement = normalize_placement(self.config.get("pet_placement"))
+        if self.config.get("pet_placement") != placement:
+            self.config["pet_placement"] = placement
+            changed = True
+        scale = normalize_scale_percent(self.config.get("pet_scale_percent"))
+        if self.config.get("pet_scale_percent") != scale:
+            self.config["pet_scale_percent"] = scale
+            changed = True
+        offset_x = self.config.get("pet_offset_x")
+        offset_y = self.config.get("pet_offset_y")
+        if offset_x is not None and offset_y is not None:
+            try:
+                pet_offset_x = int(offset_x)
+                pet_offset_y = int(offset_y)
+            except (TypeError, ValueError):
+                pet_offset_x = None
+                pet_offset_y = None
+        else:
+            pet_offset_x = None
+            pet_offset_y = None
+        self.pet_enabled = enabled
+        self.pet_id = pet_id
+        self.pet_placement = placement
+        self.pet_scale_percent = scale
+        self.pet_offset_x = pet_offset_x
+        self.pet_offset_y = pet_offset_y
+        if changed:
+            self._save_config()
+
+    def _boot_pet(self) -> None:
+        if not hasattr(self, "pet"):
+            return
+        self.pet.set_placement(self.pet_placement)
+        folder = find_pet_folder(self.pet_id) if self.pet_enabled else None
+        loaded = False
+        if folder is not None:
+            loaded = self.pet.load(
+                folder, scale=self.pet_scale_percent / 100.0
+            )
+        self.pet.set_enabled(bool(self.pet_enabled and loaded))
+
     def _on_list_expand(self, expanded: bool) -> None:
         self.list_bar_expanded = expanded
         self.config["list_bar_expanded"] = expanded
@@ -502,11 +581,25 @@ class ContextBadge:
     def _apply_pointer_mode(self) -> None:
         interactive = (
             self.resize_mode
+            or self.pet_place_mode
+            or self.pet_size_mode
             or self._edit_dragging
             or self._body_dragging
             or not self.position_locked
         )
         self._set_click_through(not interactive)
+        if hasattr(self, "pet"):
+            self.pet.set_click_through(
+                self.position_locked
+                and not self.pet_place_mode
+                and not self.pet_size_mode
+            )
+            if self.pet_size_mode:
+                self.pet.set_pointer_mode("size")
+            elif self.pet_place_mode:
+                self.pet.set_pointer_mode("place")
+            else:
+                self.pet.set_pointer_mode("move")
         if self.resize_mode:
             self.canvas.configure(cursor="sizing")
             if hasattr(self, "hit_canvas"):
@@ -539,6 +632,8 @@ class ContextBadge:
         set_window_owner(self.menu.hwnd, GWLP_HWNDPARENT, self.overlay_hwnd)
         if hasattr(self, "list_bar"):
             set_window_owner(self.list_bar.hwnd, GWLP_HWNDPARENT, self.overlay_hwnd)
+        if hasattr(self, "pet"):
+            self.pet.set_owner(self.overlay_hwnd)
 
     def _prepare_hit_catcher(self) -> None:
         style = user32.GetWindowLongW(self.hit_hwnd, GWL_EXSTYLE)
@@ -611,6 +706,8 @@ class ContextBadge:
                 0,
                 SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
             )
+        if hasattr(self, "pet"):
+            self.pet.raise_pet()
         user32.SetWindowPos(
             self.edit_hwnd,
             HWND_TOPMOST,
@@ -620,10 +717,10 @@ class ContextBadge:
             0,
             SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
         )
-        if getattr(self, "menu_open", False) and hasattr(self, "menu"):
-            self.menu.raise_popup()
         if hasattr(self, "list_bar"):
             self.list_bar.raise_bar()
+        if getattr(self, "menu_open", False) and hasattr(self, "menu"):
+            self.menu.raise_popup()
 
     def _tab_index_at(self, x: int) -> int:
         if self.position_locked:
@@ -639,7 +736,7 @@ class ContextBadge:
             self._press_job = None
 
     def _handle_control_press(self, event: tk.Event) -> None:
-        if self.resize_mode or self.move_mode:
+        if self.resize_mode or self.move_mode or self.pet_place_mode or self.pet_size_mode:
             self._end_interaction()
             self._press_tab = None
             self._press_origin = None
@@ -756,13 +853,13 @@ class ContextBadge:
     def _toggle_edit_control(self) -> None:
         if self.position_locked:
             return
-        if self.resize_mode:
+        if self.resize_mode or self.pet_place_mode or self.pet_size_mode:
             self._end_interaction()
             return
         self._set_menu_open(not self.menu_open)
 
     def _toggle_list_bar(self) -> None:
-        if self.resize_mode:
+        if self.resize_mode or self.pet_place_mode or self.pet_size_mode:
             self._end_interaction()
         self.list_bar.set_expanded(not self.list_bar.expanded)
         self._draw_control_strip()
@@ -786,7 +883,7 @@ class ContextBadge:
     def _minimize_to_taskbar(self) -> None:
         if self.minimized:
             return
-        if self.resize_mode:
+        if self.resize_mode or self.pet_place_mode or self.pet_size_mode:
             self._end_interaction()
         if self._edit_dragging:
             self._finish_edit_drag()
@@ -801,6 +898,8 @@ class ContextBadge:
         user32.ShowWindow(self.menu.hwnd, SW_HIDE)
         self.menu.hide()
         self.list_bar.hide()
+        if hasattr(self, "pet"):
+            self.pet.hide()
         self._prepare_taskbar_proxy()
         self.taskbar_window.deiconify()
         self.taskbar_window.iconify()
@@ -854,6 +953,144 @@ class ContextBadge:
             self._toggle_lock()
         elif action_id == "analysis":
             self._open_analysis()
+
+    def _on_pet_action(self, action_id: str) -> None:
+        if action_id == "place":
+            self._begin_pet_place()
+        elif action_id == "size":
+            self._begin_pet_size()
+
+    def _begin_pet_place(self) -> None:
+        self._set_menu_open(False)
+        if not getattr(self.pet, "enabled", False):
+            return
+        self.pet_place_mode = True
+        self.pet_size_mode = False
+        self._apply_pointer_mode()
+        self._update_app_label()
+
+    def _begin_pet_size(self) -> None:
+        self._set_menu_open(False)
+        if not getattr(self.pet, "enabled", False):
+            return
+        self.pet_size_mode = True
+        self.pet_place_mode = False
+        self._apply_pointer_mode()
+        self._update_app_label()
+
+    def _pet_layout_offset(self) -> tuple[int, int]:
+        if self.pet_offset_x is not None and self.pet_offset_y is not None:
+            return int(self.pet_offset_x), int(self.pet_offset_y)
+        return self._default_pet_offset()
+
+    def _default_pet_offset(self) -> tuple[int, int]:
+        atlas = getattr(self.pet, "atlas", None)
+        if atlas is None:
+            return 0, 0
+        badge = BadgeAnchor(
+            0,
+            0,
+            self.badge_width,
+            self.badge_height,
+            body_width=self._hit_body_width(),
+        )
+        return relative_offset(
+            self.pet_placement,
+            badge,
+            PetSize(atlas.cell_width, atlas.cell_height),
+        )
+
+    def _follow_pet_offset(self) -> tuple[int, int] | None:
+        if self.pet_offset_x is None or self.pet_offset_y is None:
+            return None
+        return int(self.pet_offset_x), int(self.pet_offset_y)
+
+    def _save_pet_layout(self) -> None:
+        self.config["pet_scale_percent"] = self.pet_scale_percent
+        if self.pet_offset_x is not None and self.pet_offset_y is not None:
+            self.config["pet_offset_x"] = int(self.pet_offset_x)
+            self.config["pet_offset_y"] = int(self.pet_offset_y)
+        self._save_config()
+
+    def _on_pet_pointer(self, phase: str, x: int, y: int) -> None:
+        if phase == "press":
+            self._pet_press = (x, y)
+            self._pet_dragging = False
+            if self.pet_size_mode:
+                self._pet_size_origin = (x, y, self.pet_scale_percent)
+            elif self.pet_place_mode:
+                self._pet_place_origin = (x, y, self._pet_layout_offset())
+            elif self.position_locked:
+                self._pet_press = None
+            else:
+                self.drag_offset = (x - self.root.winfo_x(), y - self.root.winfo_y())
+            return
+        if phase == "drag":
+            if self.pet_size_mode:
+                self._drag_pet_size(x, y)
+            elif self.pet_place_mode:
+                self._drag_pet_place(x, y)
+            elif self._pet_press is not None and not self.position_locked:
+                if not self._pet_dragging:
+                    origin_x, origin_y = self._pet_press
+                    dx = x - origin_x
+                    dy = y - origin_y
+                    if dx * dx + dy * dy < self.DRAG_THRESHOLD_PX ** 2:
+                        return
+                    self._pet_dragging = True
+                    self._body_dragging = True
+                    self._set_menu_open(False)
+                    self._draw_control_strip()
+                self._move_to_pointer(x, y)
+            return
+        if self.pet_size_mode or self.pet_place_mode:
+            if self._pet_dragging or self._pet_size_origin or self._pet_place_origin:
+                self._save_pet_layout()
+            self.pet_size_mode = False
+            self.pet_place_mode = False
+            self._pet_size_origin = None
+            self._pet_place_origin = None
+            self._pet_dragging = False
+            self._pet_press = None
+            self._apply_pointer_mode()
+            self._update_app_label()
+            return
+        if self._pet_dragging:
+            self._pet_dragging = False
+            self._body_dragging = False
+            self._save_position()
+            self._draw_control_strip()
+        self._pet_press = None
+
+    def _drag_pet_place(self, x: int, y: int) -> None:
+        if self._pet_place_origin is None:
+            return
+        start_x, start_y, (offset_x, offset_y) = self._pet_place_origin
+        self._pet_dragging = True
+        self.pet_offset_x = offset_x + (x - start_x)
+        self.pet_offset_y = offset_y + (y - start_y)
+        self._set_position(self.root.winfo_x(), self.root.winfo_y())
+
+    def _drag_pet_size(self, x: int, y: int) -> None:
+        if self._pet_size_origin is None or self.pet.atlas is None:
+            return
+        start_x, start_y, start_percent = self._pet_size_origin
+        delta = ((x - start_x) + (y - start_y)) // 2
+        percent = normalize_scale_percent(start_percent + delta)
+        if percent == self.pet_scale_percent:
+            return
+        old = PetSize(self.pet.atlas.cell_width, self.pet.atlas.cell_height)
+        self.pet_scale_percent = percent
+        self.pet.set_scale_percent(percent)
+        if self.pet.atlas is None:
+            return
+        new = PetSize(self.pet.atlas.cell_width, self.pet.atlas.cell_height)
+        if self.pet_offset_x is not None and self.pet_offset_y is not None:
+            self.pet_offset_x, self.pet_offset_y = keep_sit_offset(
+                old, new, (self.pet_offset_x, self.pet_offset_y)
+            )
+        self._pet_dragging = True
+        self._set_position(self.root.winfo_x(), self.root.winfo_y())
 
     def _toggle_lock(self) -> None:
         self.position_locked = not self.position_locked
@@ -1049,12 +1286,20 @@ class ContextBadge:
         self.dwell.close("shutdown")
         if self._edit_dragging or self._body_dragging or self.resize_mode:
             self._save_position()
+        if self.pet_place_mode or self.pet_size_mode:
+            self._save_pet_layout()
         self.root.destroy()
 
     def _end_interaction(self) -> None:
         self._save_position()
+        if self.pet_place_mode or self.pet_size_mode:
+            self._save_pet_layout()
         self.move_mode = False
         self.resize_mode = False
+        self.pet_place_mode = False
+        self.pet_size_mode = False
+        self._pet_size_origin = None
+        self._pet_place_origin = None
         self._apply_theme()
         self._apply_pointer_mode()
         self.canvas.itemconfigure(self.resize_handle, state="hidden")
@@ -1228,6 +1473,10 @@ class ContextBadge:
     def _update_app_label(self) -> None:
         if self.resize_mode:
             prefix = "RESIZE MODE · "
+        elif self.pet_place_mode:
+            prefix = "PET PLACE · "
+        elif self.pet_size_mode:
+            prefix = "PET SIZE · "
         else:
             prefix = ""
         self._render_text(prefix + self.current_app_name, self.current_title)
@@ -1309,6 +1558,13 @@ class ContextBadge:
         self._update_app_label()
 
     def _start_drag(self, event: tk.Event) -> None:
+        if self.pet_place_mode or self.pet_size_mode:
+            self.pet_place_mode = False
+            self.pet_size_mode = False
+            self._pet_size_origin = None
+            self._pet_place_origin = None
+            self._apply_pointer_mode()
+            self._update_app_label()
         if self.resize_mode:
             self.resize_origin = (
                 event.x_root,
@@ -1420,6 +1676,15 @@ class ContextBadge:
         if hasattr(self, "menu"):
             menu_x = x + self.badge_width - self.menu.width
             self.menu.set_position(menu_x, menu_y)
+        if hasattr(self, "pet"):
+            self.pet.follow(
+                x,
+                y,
+                self.badge_width,
+                self.badge_height,
+                body_width=self._hit_body_width(),
+                offset=self._follow_pet_offset(),
+            )
 
     def _move_to_active_monitor(self, foreground: int) -> None:
         if self.minimized:
@@ -1430,6 +1695,14 @@ class ContextBadge:
         work = monitor_work_area(foreground)
         x = work.left + ((work.right - work.left) - self.badge_width) // 2
         y = work.top + self.TOP_MARGIN
+        if (
+            getattr(self, "pet", None)
+            and self.pet.enabled
+            and self.pet.atlas is not None
+        ):
+            offset_y = self._pet_layout_offset()[1]
+            if offset_y < 0:
+                y = max(y, work.top - offset_y + 8)
         self._set_position(x, y)
 
     def _analysis_is_foreground(self, hwnd: int) -> bool:
@@ -1495,6 +1768,7 @@ class ContextBadge:
             self.menu_hwnd,
             self.taskbar_hwnd,
             self.list_bar.hwnd,
+            self.pet.hwnd,
         ) and root_hwnd(foreground) != self.list_bar.hwnd:
             self.last_foreground = foreground
         else:

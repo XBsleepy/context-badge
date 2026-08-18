@@ -39,7 +39,7 @@ class BubbleTests(unittest.TestCase):
 
     def test_content_box_sits_inside_the_body(self) -> None:
         x, y, w, h = content_box(
-            440, 240, tail_height=11, radius=18, rod_height=8, pad=10
+            440, 240, tail_height=11, radius=18, rod_height=0, pad=10
         )
         self.assertGreaterEqual(x, 8)
         self.assertGreater(y, 11)

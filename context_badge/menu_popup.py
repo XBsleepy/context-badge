@@ -35,6 +35,7 @@ from .win32 import (
 
 MAIN_WIDTH = 228
 APPEARANCE_WIDTH = 304
+PET_WIDTH = 228
 ROW_HEIGHT = 40
 HEADER_HEIGHT = 36
 SECTION_HEIGHT = 22
@@ -56,11 +57,13 @@ class MenuPopup:
         on_theme: Callable[[str], None],
         on_colour: Callable[[str, str], None],
         on_radius: Callable[[int], None],
+        on_pet_action: Callable[[str], None] | None = None,
     ) -> None:
         self.on_action = on_action
         self.on_theme = on_theme
         self.on_colour = on_colour
         self.on_radius = on_radius
+        self.on_pet_action = on_pet_action
         self.page = "main"
         self.open = False
         self._right = 0
@@ -199,6 +202,8 @@ class MenuPopup:
     def _render(self) -> None:
         if self.page == "appearance":
             self._render_appearance()
+        elif self.page == "pet":
+            self._render_pet()
         else:
             self._render_main()
         if self.open:
@@ -222,8 +227,13 @@ class MenuPopup:
 
     def _render_main(self) -> None:
         rows = list(self._actions)
-        if not any(key == "appearance" for key, _label in rows):
-            rows.insert(max(0, len(rows) - 1), ("appearance", "Appearance  ›"))
+        keys = {key for key, _label in rows}
+        insert_at = max(0, len(rows) - 1)
+        if "appearance" not in keys:
+            rows.insert(insert_at, ("appearance", "Appearance  ›"))
+            insert_at += 1
+        if "pet" not in keys:
+            rows.insert(insert_at, ("pet", "Pet  ›"))
         self.width = MAIN_WIDTH
         self.height = HEADER_HEIGHT + ROW_HEIGHT * max(1, len(rows)) + PAD
         self._paint_card()
@@ -311,6 +321,70 @@ class MenuPopup:
         y += 10
         y = self._section(y, "Colours")
         self._draw_colour_rows(y)
+
+    def _render_pet(self) -> None:
+        rows = (("place", "Place"), ("size", "Size"))
+        self.width = PET_WIDTH
+        self.height = HEADER_HEIGHT + ROW_HEIGHT * len(rows) + 28 + PAD
+        self._paint_card()
+        self.canvas.create_rectangle(
+            INSET + 4,
+            6,
+            70,
+            HEADER_HEIGHT - 2,
+            fill=self._fill,
+            outline=self._fill,
+            tags="back",
+        )
+        self.canvas.create_text(
+            PAD,
+            HEADER_HEIGHT // 2 + 2,
+            anchor="w",
+            text="‹  Pet",
+            fill=self._muted,
+            font=("Segoe UI Semibold", 10),
+            tags="back",
+        )
+        for index, (key, label) in enumerate(rows):
+            top = HEADER_HEIGHT + index * ROW_HEIGHT
+            tag = f"petaction:{key}"
+            if index:
+                self.canvas.create_line(
+                    PAD,
+                    top,
+                    self.width - PAD,
+                    top,
+                    fill=self._border,
+                    tags="chrome",
+                )
+            self.canvas.create_rectangle(
+                INSET + 4,
+                top + 2,
+                self.width - INSET - 4,
+                top + ROW_HEIGHT - 2,
+                fill=self._fill,
+                outline=self._fill,
+                tags=tag,
+            )
+            self.canvas.create_text(
+                PAD + 2,
+                top + ROW_HEIGHT // 2,
+                anchor="w",
+                text=label,
+                fill=self._text,
+                font=("Segoe UI Semibold", 11),
+                tags=tag,
+            )
+        hint_y = HEADER_HEIGHT + ROW_HEIGHT * len(rows) + 10
+        self.canvas.create_text(
+            PAD + 2,
+            hint_y,
+            anchor="w",
+            text="Then drag the pet",
+            fill=self._muted,
+            font=("Segoe UI", 9),
+            tags="chrome",
+        )
 
     def _section(self, y: int, title: str) -> int:
         self.canvas.create_text(
@@ -484,8 +558,17 @@ class MenuPopup:
                 self.page = "appearance"
                 self._render()
                 return
+            if tag == "action:pet":
+                self.page = "pet"
+                self._render()
+                return
             if tag.startswith("action:"):
                 self.on_action(tag.split(":", 1)[1])
+                return
+            if tag.startswith("petaction:"):
+                action = tag.split(":", 1)[1]
+                if self.on_pet_action is not None:
+                    self.on_pet_action(action)
                 return
             if tag.startswith("theme:"):
                 self.on_theme(tag.split(":", 1)[1])

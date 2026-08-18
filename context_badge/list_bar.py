@@ -33,7 +33,7 @@ GAP_FROM_BADGE = 0
 EDIT_NEW = "__new__"
 RADIUS = 18
 TAIL_HEIGHT = 11
-ROD_HEIGHT = 8
+ROD_HEIGHT = 0
 CHROME_PAD = 10
 BG = "#101218"
 TEXT = "#f4f1ea"
@@ -44,35 +44,6 @@ CHECK_WELL = "#3a3f4a"
 BASE_HINT = "Here you can keep items that stay with you"
 NOTE_HINT = "Here you can write a note for this place"
 ITEM_HINT = "Here you can add an item"
-
-_NAV_KEYS = {
-    "Return",
-    "KP_Enter",
-    "Tab",
-    "Escape",
-    "BackSpace",
-    "Delete",
-    "Left",
-    "Right",
-    "Up",
-    "Down",
-    "Home",
-    "End",
-    "Shift_L",
-    "Shift_R",
-    "Control_L",
-    "Control_R",
-    "Alt_L",
-    "Alt_R",
-}
-
-
-def _is_typing_key(event: tk.Event) -> bool:
-    """Return whether this key should replace a placeholder."""
-    if event.keysym in _NAV_KEYS:
-        return False
-    char = event.char or ""
-    return len(char) == 1 and char.isprintable()
 
 
 class ListBar:
@@ -164,11 +135,8 @@ class ListBar:
         )
         self.note_entry.pack(side="left", fill="x", expand=True, padx=(12, 0))
         self.note_entry.bind("<FocusIn>", self._on_note_focus_in)
-        self.note_entry.bind("<ButtonRelease-1>", self._on_note_focus_in)
         self.note_entry.bind("<FocusOut>", self._on_note_focus_out)
         self.note_entry.bind("<Return>", self._on_note_return)
-        self.note_entry.bind("<KeyPress>", self._on_note_key)
-        self.note_entry.bind("<<Paste>>", self._on_note_paste)
         self.count_label = tk.Label(
             self.header,
             text="",
@@ -537,12 +505,12 @@ class ListBar:
         highlight = (
             TRANSPARENT_KEY
             if self._transparent
-            else blend_hex(self._panel_bg, "#ffffff", 0.22)
+            else blend_hex(self._panel_bg, "#ffffff", 0.18)
         )
-        rod = (
+        crease = (
             TRANSPARENT_KEY
             if self._transparent
-            else blend_hex(self._panel_bg, self._text, 0.16)
+            else blend_hex(self._panel_bg, "#000000", 0.22)
         )
         draw_scroll_bubble(
             self.chrome,
@@ -551,7 +519,7 @@ class ListBar:
             fill=fill,
             border=self._border,
             highlight=highlight,
-            rod_fill=rod,
+            rod_fill=crease,
             radius=self._radius,
             tail_height=self._tail_height,
             tail_width=max(16, self._tail_height * 2),
@@ -610,31 +578,9 @@ class ListBar:
 
     def _on_note_focus_in(self, _event: tk.Event) -> None:
         if self._note_placeholder:
-            self.note_entry.selection_range(0, "end")
-
-    def _on_note_key(self, event: tk.Event) -> str | None:
-        if not self._note_placeholder:
-            return None
-        if event.keysym in {"BackSpace", "Delete"}:
-            return "break"
-        if not _is_typing_key(event):
-            return None
-        self._note_placeholder = False
-        try:
-            selected = bool(self.note_entry.selection_present())
-        except tk.TclError:
-            selected = False
-        if not selected:
+            self._note_placeholder = False
             self.note_var.set("")
-        self.note_entry.configure(fg=self._text)
-        return None
-
-    def _on_note_paste(self, _event: tk.Event) -> None:
-        if not self._note_placeholder:
-            return
-        self._note_placeholder = False
-        self.note_var.set("")
-        self.note_entry.configure(fg=self._text)
+            self.note_entry.configure(fg=self._text)
 
     def _on_note_focus_out(self, _event: tk.Event) -> None:
         self._commit_note()
@@ -716,9 +662,7 @@ class ListBar:
         )
         check.pack(side="left", padx=(8, 2))
         if self._editing_key == key and self._editing == item["id"]:
-            self._pack_item_entry(
-                row, key, item["id"], item["text"], hint=self._item_hint(key)
-            )
+            self._pack_item_entry(row, key, item["id"], item["text"])
         else:
             colour = DONE if item["done"] else self._text
             text = item["text"] or self._item_hint(key)
@@ -772,7 +716,7 @@ class ListBar:
         spacer.pack(side="left", padx=(8, 2))
         spacer.bind("<MouseWheel>", self._on_mousewheel)
         if self._editing_key == key and self._editing == EDIT_NEW:
-            self._pack_item_entry(row, key, EDIT_NEW, "", hint=hint)
+            self._pack_item_entry(row, key, EDIT_NEW, "")
             return
         label = tk.Label(
             row,
@@ -798,57 +742,18 @@ class ListBar:
         key: str,
         item_id: str,
         text: str,
-        *,
-        hint: str = "",
     ) -> tk.Entry:
-        hint_on = [bool(hint) and not str(text).strip()]
         entry = tk.Entry(
             row,
             bg=self._panel_bg,
-            fg=self._muted if hint_on[0] else self._text,
+            fg=self._text,
             insertbackground=self._text,
             relief="flat",
             font=("Segoe UI", self._font_size),
         )
-        entry.insert(0, hint if hint_on[0] else text)
+        entry.insert(0, text)
         entry.pack(side="left", fill="x", expand=True, padx=(0, 4), pady=4)
         entry.focus_set()
-        if hint_on[0]:
-            entry.selection_range(0, "end")
-
-        def real_value() -> str:
-            if hint_on[0]:
-                return ""
-            return entry.get().strip()
-
-        entry._real_value = real_value  # type: ignore[attr-defined]
-
-        def on_key(event: tk.Event) -> str | None:
-            if not hint_on[0]:
-                return None
-            if event.keysym in {"BackSpace", "Delete"}:
-                return "break"
-            if not _is_typing_key(event):
-                return None
-            hint_on[0] = False
-            try:
-                selected = bool(entry.selection_present())
-            except tk.TclError:
-                selected = False
-            if not selected:
-                entry.delete(0, "end")
-            entry.configure(fg=self._text)
-            return None
-
-        def on_paste(_event: tk.Event) -> None:
-            if not hint_on[0]:
-                return
-            hint_on[0] = False
-            entry.delete(0, "end")
-            entry.configure(fg=self._text)
-
-        entry.bind("<KeyPress>", on_key)
-        entry.bind("<<Paste>>", on_paste)
         entry.bind(
             "<Return>",
             lambda _event, store_key=key, current=item_id, field=entry: self._on_item_return(
@@ -903,8 +808,7 @@ class ListBar:
     ) -> None:
         if self._editing_key != key or self._editing != item_id:
             return
-        getter = getattr(field, "_real_value", None)
-        text = getter() if callable(getter) else field.get().strip()
+        text = field.get().strip()
         self._editing = None
         self._editing_key = ""
         store_key = BASE_LIST_KEY if key == BASE_LIST_KEY else self._key

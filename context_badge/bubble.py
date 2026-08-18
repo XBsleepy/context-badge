@@ -182,8 +182,8 @@ def content_box(
     *,
     tail_height: int,
     radius: int,
-    rod_height: int,
     pad: int,
+    rod_height: int = 0,
 ) -> tuple[int, int, int, int]:
     """Return ``(x, y, w, h)`` for widgets inside the bubble body."""
     x = max(int(pad), int(radius) + 2)
@@ -192,31 +192,6 @@ def content_box(
     inner_w = int(width) - 2 * x
     inner_h = int(height) - y - bottom
     return x, y, max(1, inner_w), max(1, inner_h)
-
-
-def _draw_capsule(
-    canvas: Any,
-    x1: float,
-    y1: float,
-    x2: float,
-    y2: float,
-    *,
-    fill: str,
-    outline: str,
-    shine: str,
-) -> None:
-    height = y2 - y1
-    if height < 4 or x2 - x1 < height:
-        return
-    radius = height / 2.0
-    canvas.create_oval(x1, y1, x1 + height, y2, fill=fill, outline=outline, width=1)
-    canvas.create_oval(x2 - height, y1, x2, y2, fill=fill, outline=outline, width=1)
-    canvas.create_rectangle(
-        x1 + radius, y1, x2 - radius, y2, fill=fill, outline=fill
-    )
-    canvas.create_line(x1 + radius, y1, x2 - radius, y1, fill=outline)
-    canvas.create_line(x1 + radius, y2, x2 - radius, y2, fill=outline)
-    canvas.create_line(x1 + radius, y1 + 1, x2 - radius, y1 + 1, fill=shine)
 
 
 def draw_scroll_bubble(
@@ -231,10 +206,10 @@ def draw_scroll_bubble(
     radius: int,
     tail_height: int,
     tail_width: int,
-    rod_height: int,
+    rod_height: int = 0,
     inset: int = 2,
 ) -> None:
-    """Paint a hanging scroll-bubble: top tail, rounded paper, end rods."""
+    """Paint a hanging paper bubble: top tail, rounded body, inner bevel."""
     canvas.delete("all")
     points = bubble_outline(
         width,
@@ -251,31 +226,28 @@ def draw_scroll_bubble(
         width=2,
         joinstyle="round",
     )
-    rod_h = max(5, int(rod_height))
-    rod_left = inset + radius
-    rod_right = width - inset - radius
-    if rod_right - rod_left < rod_h * 2:
+    if fill == highlight:
         return
-    top_y = inset + tail_height + 3
-    _draw_capsule(
-        canvas,
-        rod_left,
-        top_y,
-        rod_right,
-        top_y + rod_h,
-        fill=rod_fill,
-        outline=border,
-        shine=highlight,
+    inner_radius = 0 if radius < 1 else max(1, int(radius) - 1)
+    inner = bubble_outline(
+        width,
+        height,
+        radius=inner_radius,
+        tail_height=tail_height,
+        tail_width=max(8, tail_width - 4),
+        inset=inset + 1,
     )
-    bottom_y = height - inset - 3 - rod_h
-    if bottom_y > top_y + rod_h + 8:
-        _draw_capsule(
-            canvas,
-            rod_left,
-            bottom_y,
-            rod_right,
-            bottom_y + rod_h,
-            fill=rod_fill,
-            outline=border,
-            shine=highlight,
-        )
+    canvas.create_polygon(
+        inner,
+        fill=fill,
+        outline=highlight,
+        width=1,
+        joinstyle="round",
+    )
+    crease_y = inset + tail_height + 1
+    foot_y = height - inset - 2
+    left = inset + max(8, int(radius))
+    right = width - inset - max(8, int(radius))
+    if right - left > 16:
+        canvas.create_line(left, crease_y, right, crease_y, fill=rod_fill)
+        canvas.create_line(left, foot_y, right, foot_y, fill=rod_fill)
