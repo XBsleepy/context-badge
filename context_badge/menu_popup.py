@@ -6,6 +6,16 @@ import tkinter as tk
 from collections.abc import Callable, Sequence
 
 from .bubble import draw_rounded_panel
+from .rest_timer import (
+    CUSTOM_REST_SLOTS,
+    PRESET_REST_MINUTES,
+    custom_slot_is_selected,
+    format_rest_interval,
+    normalize_custom_minutes,
+    normalize_custom_slot,
+    normalize_rest_message,
+    normalize_rest_minutes,
+)
 from .theme import (
     COLOUR_PALETTE,
     COLOUR_THEMES,
@@ -36,6 +46,8 @@ from .win32 import (
 MAIN_WIDTH = 228
 APPEARANCE_WIDTH = 304
 PET_WIDTH = 228
+REST_WIDTH = 260
+HIDE_WIDTH = 240
 ROW_HEIGHT = 40
 HEADER_HEIGHT = 36
 SECTION_HEIGHT = 22
@@ -44,6 +56,20 @@ PILL_H = 28
 SWATCH_ROW_H = 48
 PAD = 14
 INSET = 2
+
+HIDE_TARGETS = ("badge", "pet", "all")
+HIDE_TARGET_LABELS = {
+    "badge": "Badge",
+    "pet": "Pet",
+    "all": "All",
+}
+
+
+def normalize_hide_target(value: object) -> str:
+    text = str(value or "all").strip().lower()
+    if text in HIDE_TARGETS:
+        return text
+    return "all"
 
 
 class MenuPopup:
@@ -58,12 +84,22 @@ class MenuPopup:
         on_colour: Callable[[str, str], None],
         on_radius: Callable[[int], None],
         on_pet_action: Callable[[str], None] | None = None,
+        on_rest_action: Callable[[str], None] | None = None,
+        on_rest_minutes: Callable[[int, int | None], None] | None = None,
+        on_rest_custom: Callable[[int, int | None], None] | None = None,
+        on_rest_message: Callable[[str], None] | None = None,
+        on_hide_target: Callable[[str], None] | None = None,
     ) -> None:
         self.on_action = on_action
         self.on_theme = on_theme
         self.on_colour = on_colour
         self.on_radius = on_radius
         self.on_pet_action = on_pet_action
+        self.on_rest_action = on_rest_action
+        self.on_rest_minutes = on_rest_minutes
+        self.on_rest_custom = on_rest_custom
+        self.on_rest_message = on_rest_message
+        self.on_hide_target = on_hide_target
         self.page = "main"
         self.open = False
         self._right = 0
@@ -77,6 +113,19 @@ class MenuPopup:
         self._border = "#8a8175"
         self._background = "#16181d"
         self._list_background = "#101218"
+        self._rest_enabled = False
+        self._rest_paused = False
+        self._rest_minutes = 60
+        self._rest_custom_slot: int | None = None
+        self._custom_minutes: list[int | None] = [None] * CUSTOM_REST_SLOTS
+        self._rest_entries: list[tk.Entry] = []
+        self._message_entry: tk.Entry | None = None
+        self._rest_message = "Time to rest"
+        self._preset_panels: dict[int, int] = {}
+        self._preset_labels: dict[int, int] = {}
+        self._custom_panels: list[int] = []
+        self._committing_custom = False
+        self._hide_target = "all"
         self._actions: list[tuple[str, str]] = []
 
         self.window = tk.Toplevel(parent)
@@ -102,10 +151,14 @@ class MenuPopup:
         self._apply_window_style()
         self.window.withdraw()
 
-    def _apply_window_style(self) -> None:
+    def _apply_window_style(self, *, activate: bool = False) -> None:
         style = user32.GetWindowLongW(self.hwnd, GWL_EXSTYLE)
-        style |= WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE
+        style |= WS_EX_LAYERED | WS_EX_TOOLWINDOW
         style &= ~WS_EX_TRANSPARENT
+        if activate:
+            style &= ~WS_EX_NOACTIVATE
+        else:
+            style |= WS_EX_NOACTIVATE
         user32.SetWindowLongW(self.hwnd, GWL_EXSTYLE, style)
         user32.SetWindowPos(
             self.hwnd,
@@ -137,7 +190,43 @@ class MenuPopup:
         self._radius = max(0, int(radius))
         self._background = background
         self._list_background = list_background
+        if self._custom_focused():
+            return
         self._render()
+
+    def set_rest_state(
+        self,
+        *,
+        enabled: bool,
+        paused: bool,
+        minutes: int,
+        custom_minutes: Sequence[int | None] | None = None,
+        custom_slot: int | None = None,
+        message: str | None = None,
+    ) -> None:
+        self._rest_enabled = bool(enabled)
+        self._rest_paused = bool(paused)
+        self._rest_minutes = normalize_rest_minutes(minutes)
+        if custom_minutes is not None:
+            self._custom_minutes = normalize_custom_minutes(list(custom_minutes))
+        self._rest_custom_slot = normalize_custom_slot(
+            custom_slot,
+            self._custom_minutes,
+            self._rest_minutes,
+        )
+        if message is not None:
+            self._rest_message = normalize_rest_message(message)
+        if self.page != "rest":
+            return
+        if self._custom_focused():
+            self._refresh_interval_highlights()
+            return
+        self._render()
+
+    def set_hide_target(self, target: str) -> None:
+        self._hide_target = normalize_hide_target(target)
+        if self.page == "hide":
+            self._render()
 
     def set_actions(self, actions: Sequence[tuple[str, str]]) -> None:
         self._actions = [(str(key), str(label)) for key, label in actions]
@@ -156,8 +245,10 @@ class MenuPopup:
     def hide(self) -> None:
         self.open = False
         self.page = "main"
+        self._clear_rest_entries()
         user32.ShowWindow(self.hwnd, SW_HIDE)
         self.window.withdraw()
+        self._apply_window_style(activate=False)
 
     def set_position(self, x: int, y: int) -> None:
         self._y = int(y)
@@ -200,14 +291,44 @@ class MenuPopup:
         )
 
     def _render(self) -> None:
+        self._clear_rest_entries()
         if self.page == "appearance":
             self._render_appearance()
         elif self.page == "pet":
             self._render_pet()
+        elif self.page == "rest":
+            self._render_rest()
+        elif self.page == "hide":
+            self._render_hide()
         else:
             self._render_main()
+        self._apply_window_style(activate=self.page == "rest")
         if self.open:
             self._place()
+
+    def _clear_rest_entries(self) -> None:
+        for entry in self._rest_entries:
+            try:
+                entry.destroy()
+            except tk.TclError:
+                pass
+        self._rest_entries = []
+        self._preset_panels = {}
+        self._preset_labels = {}
+        self._custom_panels = []
+        if self._message_entry is not None:
+            try:
+                self._message_entry.destroy()
+            except tk.TclError:
+                pass
+            self._message_entry = None
+
+    def _custom_focused(self) -> bool:
+        try:
+            focus = self.window.focus_get()
+        except tk.TclError:
+            return False
+        return focus in self._rest_entries or focus is self._message_entry
 
     def _paint_card(self) -> None:
         self.canvas.delete("all")
@@ -234,6 +355,12 @@ class MenuPopup:
             insert_at += 1
         if "pet" not in keys:
             rows.insert(insert_at, ("pet", "Pet  ›"))
+            insert_at += 1
+        if "rest" not in keys:
+            rows.insert(insert_at, ("rest", "Rest  ›"))
+            insert_at += 1
+        if "hide" not in keys:
+            rows.insert(insert_at, ("hide", "Hide  ›"))
         self.width = MAIN_WIDTH
         self.height = HEADER_HEIGHT + ROW_HEIGHT * max(1, len(rows)) + PAD
         self._paint_card()
@@ -385,6 +512,446 @@ class MenuPopup:
             font=("Segoe UI", 9),
             tags="chrome",
         )
+
+    def _render_rest(self) -> None:
+        self.width = REST_WIDTH
+        self.height = (
+            HEADER_HEIGHT
+            + SECTION_HEIGHT
+            + PILL_H
+            + 10
+            + SECTION_HEIGHT
+            + 2 * (PILL_H + 6)
+            + 18
+            + SECTION_HEIGHT
+            + PILL_H
+            + PAD
+        )
+        self._paint_card()
+        self.canvas.create_rectangle(
+            INSET + 4,
+            6,
+            78,
+            HEADER_HEIGHT - 2,
+            fill=self._fill,
+            outline=self._fill,
+            tags="back",
+        )
+        self.canvas.create_text(
+            PAD,
+            HEADER_HEIGHT // 2 + 2,
+            anchor="w",
+            text="‹  Rest",
+            fill=self._muted,
+            font=("Segoe UI Semibold", 10),
+            tags="back",
+        )
+        y = self._section(HEADER_HEIGHT, "Timer")
+        y = self._draw_rest_mode_pills(y)
+        y += 10
+        y = self._section(y, "Every")
+        y = self._draw_rest_interval_pills(y)
+        y += 16
+        y = self._section(y, "Message")
+        self._draw_rest_message_field(y)
+
+    def _render_hide(self) -> None:
+        self.width = HIDE_WIDTH
+        self.height = HEADER_HEIGHT + SECTION_HEIGHT + PILL_H + 28 + PAD
+        self._paint_card()
+        self.canvas.create_rectangle(
+            INSET + 4,
+            6,
+            78,
+            HEADER_HEIGHT - 2,
+            fill=self._fill,
+            outline=self._fill,
+            tags="back",
+        )
+        self.canvas.create_text(
+            PAD,
+            HEADER_HEIGHT // 2 + 2,
+            anchor="w",
+            text="‹  Hide",
+            fill=self._muted,
+            font=("Segoe UI Semibold", 10),
+            tags="back",
+        )
+        y = self._section(HEADER_HEIGHT, "Hide tab hides")
+        self._draw_hide_target_pills(y)
+        self.canvas.create_text(
+            PAD,
+            HEADER_HEIGHT + SECTION_HEIGHT + PILL_H + 12,
+            anchor="w",
+            text="Badge · Pet · All (taskbar)",
+            fill=self._muted,
+            font=("Segoe UI", 9),
+            tags="chrome",
+        )
+
+    def _draw_hide_target_pills(self, y: int) -> int:
+        gap = 6
+        pills = tuple(
+            (key, HIDE_TARGET_LABELS[key], self._hide_target == key)
+            for key in HIDE_TARGETS
+        )
+        count = len(pills)
+        pill_w = (self.width - 2 * PAD - gap * (count - 1)) // count
+        for index, (key, label, chosen) in enumerate(pills):
+            x1 = PAD + index * (pill_w + gap)
+            x2 = x1 + pill_w
+            y2 = y + PILL_H
+            tag = f"hidetarget:{key}"
+            draw_rounded_panel(
+                self.canvas,
+                x1,
+                y,
+                x2,
+                y2,
+                fill=self._text if chosen else self._fill,
+                outline=self._border,
+                radius=min(12, PILL_H // 2),
+                width=1,
+                tags=tag,
+            )
+            self.canvas.create_text(
+                (x1 + x2) // 2,
+                (y + y2) // 2,
+                text=label,
+                fill=self._fill if chosen else self._text,
+                font=("Segoe UI Semibold", 9),
+                tags=tag,
+            )
+        return y + PILL_H
+
+    def _draw_rest_mode_pills(self, y: int) -> int:
+        gap = 6
+        pills = (
+            ("on", "On", self._rest_enabled and not self._rest_paused),
+            ("paused", "Paused", self._rest_enabled and self._rest_paused),
+            ("off", "Off", not self._rest_enabled),
+        )
+        count = len(pills)
+        pill_w = (self.width - 2 * PAD - gap * (count - 1)) // count
+        for index, (key, label, chosen) in enumerate(pills):
+            x1 = PAD + index * (pill_w + gap)
+            x2 = x1 + pill_w
+            y2 = y + PILL_H
+            tag = f"restmode:{key}"
+            draw_rounded_panel(
+                self.canvas,
+                x1,
+                y,
+                x2,
+                y2,
+                fill=self._text if chosen else self._fill,
+                outline=self._border,
+                radius=min(12, PILL_H // 2),
+                width=1,
+                tags=tag,
+            )
+            self.canvas.create_text(
+                (x1 + x2) // 2,
+                (y + y2) // 2,
+                text=label,
+                fill=self._fill if chosen else self._text,
+                font=("Segoe UI Semibold", 9),
+                tags=tag,
+            )
+        return y + PILL_H
+
+    def _draw_rest_interval_pills(self, y: int) -> int:
+        gap = 6
+        cols = 3
+        pill_w = (self.width - 2 * PAD - gap * (cols - 1)) // cols
+        self._preset_panels = {}
+        self._preset_labels = {}
+        self._custom_panels = []
+        for index, value in enumerate(PRESET_REST_MINUTES):
+            column = index % cols
+            x1 = PAD + column * (pill_w + gap)
+            x2 = x1 + pill_w
+            y2 = y + PILL_H
+            tag = f"restmin:{value}"
+            chosen = self._preset_chosen(value)
+            panel = draw_rounded_panel(
+                self.canvas,
+                x1,
+                y,
+                x2,
+                y2,
+                fill=self._text if chosen else self._fill,
+                outline=self._border,
+                radius=min(12, PILL_H // 2),
+                width=1,
+                tags=tag,
+            )
+            label = self.canvas.create_text(
+                (x1 + x2) // 2,
+                (y + y2) // 2,
+                text=format_rest_interval(value * 60),
+                fill=self._fill if chosen else self._text,
+                font=("Segoe UI Semibold", 9),
+                tags=tag,
+            )
+            self._preset_panels[value] = panel
+            self._preset_labels[value] = label
+        custom_y = y + PILL_H + gap
+        for index in range(CUSTOM_REST_SLOTS):
+            x1 = PAD + index * (pill_w + gap)
+            x2 = x1 + pill_w
+            y2 = custom_y + PILL_H
+            minutes = self._custom_minutes[index]
+            chosen = self._custom_chosen(index)
+            panel = draw_rounded_panel(
+                self.canvas,
+                x1,
+                custom_y,
+                x2,
+                y2,
+                fill=self._text if chosen else self._fill,
+                outline=self._border,
+                radius=min(12, PILL_H // 2),
+                width=1,
+                tags=f"restcustom:{index}",
+            )
+            self._custom_panels.append(panel)
+            entry = tk.Entry(
+                self.canvas,
+                justify="center",
+                bd=0,
+                highlightthickness=0,
+                relief="flat",
+                font=("Segoe UI Semibold", 9),
+                bg=self._text if chosen else self._fill,
+                fg=self._fill if chosen else self._text,
+                insertbackground=self._fill if chosen else self._text,
+                width=4,
+            )
+            if minutes is not None:
+                entry.insert(0, str(minutes))
+            entry.bind(
+                "<KeyPress>",
+                lambda event, field=entry: self._on_custom_key(event, field),
+            )
+            entry.bind(
+                "<Return>",
+                lambda _event, slot=index, field=entry: self._commit_custom(
+                    slot, field
+                ),
+            )
+            entry.bind(
+                "<KP_Enter>",
+                lambda _event, slot=index, field=entry: self._commit_custom(
+                    slot, field
+                ),
+            )
+            entry.bind(
+                "<FocusIn>",
+                lambda _event, slot=index: self._on_custom_focus(slot),
+            )
+            entry.bind(
+                "<FocusOut>",
+                lambda _event, slot=index, field=entry: self._commit_custom(
+                    slot, field, select=False
+                ),
+            )
+            self.canvas.create_window(
+                (x1 + x2) // 2,
+                (custom_y + y2) // 2,
+                window=entry,
+                width=max(28, pill_w - 10),
+                height=PILL_H - 8,
+            )
+            self._rest_entries.append(entry)
+        return custom_y + PILL_H
+
+    def _draw_rest_message_field(self, y: int) -> int:
+        x1 = PAD
+        x2 = self.width - PAD
+        y2 = y + PILL_H
+        draw_rounded_panel(
+            self.canvas,
+            x1,
+            y,
+            x2,
+            y2,
+            fill=self._fill,
+            outline=self._border,
+            radius=min(12, PILL_H // 2),
+            width=1,
+            tags="chrome",
+        )
+        entry = tk.Entry(
+            self.canvas,
+            bd=0,
+            highlightthickness=0,
+            relief="flat",
+            font=("Segoe UI", 9),
+            bg=self._fill,
+            fg=self._text,
+            insertbackground=self._text,
+        )
+        entry.insert(0, self._rest_message)
+        entry.bind("<Return>", lambda _event, field=entry: self._commit_message(field))
+        entry.bind("<KP_Enter>", lambda _event, field=entry: self._commit_message(field))
+        entry.bind(
+            "<FocusOut>",
+            lambda _event, field=entry: self._commit_message(field),
+        )
+        self.canvas.create_window(
+            (x1 + x2) // 2,
+            (y + y2) // 2,
+            window=entry,
+            width=max(40, x2 - x1 - 12),
+            height=PILL_H - 8,
+        )
+        self._message_entry = entry
+        return y2
+
+    def _commit_message(self, field: tk.Entry) -> str:
+        message = normalize_rest_message(field.get())
+        self._rest_message = message
+        try:
+            if field.get() != message:
+                field.delete(0, "end")
+                field.insert(0, message)
+        except tk.TclError:
+            pass
+        if self.on_rest_message is not None:
+            self.on_rest_message(message)
+        return "break"
+
+    def _preset_chosen(self, value: int) -> bool:
+        return (
+            self._rest_custom_slot is None and self._rest_minutes == value
+        )
+
+    def _custom_chosen(self, slot: int) -> bool:
+        return custom_slot_is_selected(
+            slot,
+            minutes=self._rest_minutes,
+            customs=self._custom_minutes,
+            selected_slot=self._rest_custom_slot,
+        )
+
+    def _refresh_interval_highlights(self) -> None:
+        for value, panel in self._preset_panels.items():
+            chosen = self._preset_chosen(value)
+            try:
+                self.canvas.itemconfigure(
+                    panel,
+                    fill=self._text if chosen else self._fill,
+                )
+                self.canvas.itemconfigure(
+                    self._preset_labels[value],
+                    fill=self._fill if chosen else self._text,
+                )
+            except tk.TclError:
+                pass
+        for index, panel in enumerate(self._custom_panels):
+            chosen = self._custom_chosen(index)
+            try:
+                self.canvas.itemconfigure(
+                    panel,
+                    fill=self._text if chosen else self._fill,
+                )
+            except tk.TclError:
+                pass
+            if index >= len(self._rest_entries):
+                continue
+            entry = self._rest_entries[index]
+            try:
+                entry.configure(
+                    bg=self._text if chosen else self._fill,
+                    fg=self._fill if chosen else self._text,
+                    insertbackground=self._fill if chosen else self._text,
+                )
+            except tk.TclError:
+                pass
+
+    def _emit_rest_minutes(self, minutes: int, custom_slot: int | None) -> None:
+        self._rest_minutes = normalize_rest_minutes(minutes)
+        self._rest_custom_slot = custom_slot
+        self._refresh_interval_highlights()
+        if self.on_rest_minutes is not None:
+            self.on_rest_minutes(self._rest_minutes, custom_slot)
+
+    def _on_custom_key(self, event: tk.Event, field: tk.Entry) -> str | None:
+        if event.keysym in (
+            "BackSpace",
+            "Delete",
+            "Left",
+            "Right",
+            "Home",
+            "End",
+            "Tab",
+            "Return",
+            "KP_Enter",
+            "Escape",
+        ):
+            return None
+        if event.char and event.char.isdigit():
+            selected = bool(field.selection_present())
+            if not selected and len(field.get()) >= 3:
+                return "break"
+            return None
+        if event.char:
+            return "break"
+        return None
+
+    def _parse_custom_field(self, field: tk.Entry) -> int | None:
+        text = field.get().strip()
+        if not text:
+            return None
+        try:
+            minutes = int(text)
+        except ValueError:
+            return None
+        if minutes <= 0:
+            return None
+        return normalize_rest_minutes(minutes)
+
+    def _on_custom_focus(self, slot: int) -> None:
+        minutes = self._custom_minutes[slot]
+        if minutes is None:
+            return
+        self._emit_rest_minutes(minutes, slot)
+
+    def _commit_custom(
+        self,
+        slot: int,
+        field: tk.Entry,
+        *,
+        select: bool = True,
+    ) -> str:
+        if self._committing_custom:
+            return "break"
+        self._committing_custom = True
+        try:
+            minutes = self._parse_custom_field(field)
+            if minutes is None:
+                try:
+                    field.delete(0, "end")
+                except tk.TclError:
+                    pass
+            self._custom_minutes[slot] = minutes
+            if self.on_rest_custom is not None:
+                self.on_rest_custom(slot, minutes)
+            if select and minutes is not None:
+                self._emit_rest_minutes(minutes, slot)
+                try:
+                    self.canvas.focus_set()
+                except tk.TclError:
+                    pass
+                self._render()
+            else:
+                if self._rest_custom_slot == slot and minutes is None:
+                    self._rest_custom_slot = None
+                self._refresh_interval_highlights()
+        finally:
+            self._committing_custom = False
+        return "break"
 
     def _section(self, y: int, title: str) -> int:
         self.canvas.create_text(
@@ -562,6 +1129,14 @@ class MenuPopup:
                 self.page = "pet"
                 self._render()
                 return
+            if tag == "action:rest":
+                self.page = "rest"
+                self._render()
+                return
+            if tag == "action:hide":
+                self.page = "hide"
+                self._render()
+                return
             if tag.startswith("action:"):
                 self.on_action(tag.split(":", 1)[1])
                 return
@@ -569,6 +1144,30 @@ class MenuPopup:
                 action = tag.split(":", 1)[1]
                 if self.on_pet_action is not None:
                     self.on_pet_action(action)
+                return
+            if tag.startswith("restmode:"):
+                mode = tag.split(":", 1)[1]
+                if self.on_rest_action is not None:
+                    self.on_rest_action(mode)
+                return
+            if tag.startswith("restsec:") or tag.startswith("restmin:"):
+                minutes = normalize_rest_minutes(tag.split(":", 1)[1])
+                self._emit_rest_minutes(minutes, None)
+                self._render()
+                return
+            if tag.startswith("restcustom:"):
+                slot = int(tag.split(":", 1)[1])
+                stored = self._custom_minutes[slot]
+                if stored is not None:
+                    self._emit_rest_minutes(stored, slot)
+                    self._refresh_interval_highlights()
+                return
+            if tag.startswith("hidetarget:"):
+                target = normalize_hide_target(tag.split(":", 1)[1])
+                self._hide_target = target
+                if self.on_hide_target is not None:
+                    self.on_hide_target(target)
+                self._render()
                 return
             if tag.startswith("theme:"):
                 self.on_theme(tag.split(":", 1)[1])

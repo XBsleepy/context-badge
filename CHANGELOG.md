@@ -11,6 +11,10 @@ All notable changes to Context Badge are documented here.
 - A hanging paper-bubble chrome on the list panel: top tail under the badge, inner bevel, and a short unroll animation. List fill and Border colours paint it.
 - A standalone rounded menu popup with an Appearance page: named colour themes, a corner-radius control, and a circular palette.
 - An optional Codex v2 pet overlay. Default is `qiuli` from `%USERPROFILE%\.codex\pets`, idle loop, with Menu → Pet Place/Size drag.
+- A rest timer (`Menu` → `Rest ›`) with On / Paused / Off, 15 / 30 / 60 minute presets, and three saved custom minute slots.
+- A pet-click rest clock countdown with Start / Pause / Off.
+- A pet-side rest reminder bubble (custom text in `Rest ›` → Message) instead of a separate dialog. After **Rest**, the next interval waits for **Ack**.
+- `Menu` → `Hide ›` so the Hide tab can conceal the badge, the pet, or everything (taskbar).
 
 ### Changed
 
@@ -24,6 +28,10 @@ All notable changes to Context Badge are documented here.
 - The pet overlay paints through a native layered window so idle frames show at full size with per-pixel alpha.
 - `Menu` → `Pet ›` **Place** / **Size** are drag modes. Dragging the pet also moves the badge.
 - Pet mouse handling is queued onto the Tk loop so dragging the sprite does not crash the interpreter.
+- Pet WebP decode is deferred until after the first paint so the badge shows sooner.
+- Dwell history stays append-only; the `.bak` is extended in place when possible instead of copying the whole log each time.
+- Time analysis loads one day via a rebuildable byte-offset index (full scan if the index is missing).
+- Rest intervals are stored as `rest_timer_minutes` with optional `rest_timer_custom_minutes` slots (older `rest_timer_seconds` migrates on load). Selecting a custom slot now keeps that pill lit.
 
 ## [0.2.0] - 2026-08-16
 

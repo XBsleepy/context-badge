@@ -47,7 +47,7 @@ class AnalysisWindow:
     def __init__(
         self,
         parent: tk.Tk,
-        records: Callable[[], list[dict]],
+        records: Callable[[date], list[dict]],
     ) -> None:
         self._records = records
         self.day = date.today()
@@ -205,7 +205,6 @@ class AnalysisWindow:
         self.window.lift()
         self.window.focus_force()
         self.reload()
-        self.window.after_idle(self.reload)
 
     def hide(self) -> None:
         self.window.attributes("-topmost", False)
@@ -338,7 +337,7 @@ class AnalysisWindow:
         reset_scroll = self._rendered_day != self.day
         if reset_scroll:
             self._reset_view()
-        self.day_slices = slices_for_day(self._records(), self.day)
+        self.day_slices = slices_for_day(self._records(self.day), self.day)
         self._rendered_day = self.day
         suffix = "  ·  Today" if self.day == date.today() else ""
         self.date_label.configure(text=self.day.strftime("%a %d %b %Y") + suffix)

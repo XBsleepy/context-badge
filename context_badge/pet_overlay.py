@@ -361,8 +361,7 @@ class PetOverlay:
         )
 
     def set_owner(self, owner_hwnd: int) -> None:
-        if owner_hwnd:
-            set_window_owner(self.hwnd, GWLP_HWNDPARENT, int(owner_hwnd))
+        set_window_owner(self.hwnd, GWLP_HWNDPARENT, int(owner_hwnd or 0))
 
     def load(self, folder: Path, *, scale: float = 0.5) -> bool:
         try:
@@ -463,6 +462,16 @@ class PetOverlay:
         else:
             self._move_only()
         self._arm_pointer_pump()
+
+    @property
+    def origin(self) -> tuple[int, int]:
+        return int(self._x), int(self._y)
+
+    @property
+    def size(self) -> tuple[int, int]:
+        if self.atlas is None:
+            return 0, 0
+        return int(self.atlas.cell_width), int(self.atlas.cell_height)
 
     def hide(self) -> None:
         self._hidden = True
