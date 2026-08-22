@@ -85,6 +85,15 @@ class RestTimerTests(unittest.TestCase):
         self.assertEqual(normalize_rest_message("stand up\nnow"), "stand up now")
         self.assertEqual(len(normalize_rest_message("x" * 200)), 80)
 
+    def test_alert_style_normalizes(self) -> None:
+        from context_badge.rest_timer import normalize_rest_alert_style
+
+        self.assertEqual(normalize_rest_alert_style(None), "pet")
+        self.assertEqual(normalize_rest_alert_style("bubble"), "pet")
+        self.assertEqual(normalize_rest_alert_style("window"), "window")
+        self.assertEqual(normalize_rest_alert_style("dialog"), "window")
+        self.assertEqual(normalize_rest_alert_style("nope"), "pet")
+
     def test_countdown_format(self) -> None:
         self.assertEqual(format_countdown(0), "00:00")
         self.assertEqual(format_countdown(10_000), "00:10")

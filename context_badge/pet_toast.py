@@ -10,6 +10,7 @@ from .bubble import draw_rounded_panel, draw_speech_bubble
 from .rest_timer import (
     DEFAULT_RESTING_NOTICE,
     format_rest_interval,
+    normalize_rest_alert_style,
     normalize_rest_message,
 )
 from .text_layout import fit_text
@@ -28,7 +29,9 @@ from .win32 import (
     WS_EX_NOACTIVATE,
     WS_EX_TOOLWINDOW,
     WS_EX_TRANSPARENT,
-    monitor_work_area,
+    monitor_work_area_from_point,
+    clamp_into,
+    virtual_screen,
     user32,
 )
 
@@ -62,6 +65,7 @@ class PetToast:
         self._message = "Time to rest"
         self._interval_seconds = 3600
         self._mode = "alarm"
+        self._style = "pet"
         self._tail_side = "left"
         self._font = tkfont.Font(parent, family="Segoe UI Semibold", size=11)
         self._muted_font = tkfont.Font(parent, family="Segoe UI", size=9)
@@ -143,11 +147,14 @@ class PetToast:
         pet_y: int,
         pet_w: int,
         pet_h: int,
+        *,
+        style: str = "pet",
     ) -> None:
         self._pet_x = int(pet_x)
         self._pet_y = int(pet_y)
         self._pet_w = max(0, int(pet_w))
         self._pet_h = max(0, int(pet_h))
+        self._style = normalize_rest_alert_style(style)
         self.open = True
         self._choose_side()
         self._render()
@@ -185,7 +192,13 @@ class PetToast:
         )
 
     def _choose_side(self) -> None:
-        work = monitor_work_area(self.hwnd)
+        if self._style == "window":
+            self._tail_side = "none"
+            return
+        work = monitor_work_area_from_point(
+            self._pet_x + self._pet_w // 2,
+            self._pet_y + self._pet_h // 2,
+        )
         right_left = self._pet_x + self._pet_w + 6
         if right_left + TOAST_WIDTH <= work.right - 8:
             self._tail_side = "left"
@@ -193,14 +206,26 @@ class PetToast:
         self._tail_side = "right"
 
     def _place(self) -> None:
-        if self._tail_side == "left":
+        work = monitor_work_area_from_point(
+            self._pet_x + self._pet_w // 2,
+            self._pet_y + self._pet_h // 2,
+        )
+        if self._style == "window":
+            left = work.left + ((work.right - work.left) - TOAST_WIDTH) // 2
+            top = work.top + max(48, ((work.bottom - work.top) - TOAST_HEIGHT) // 3)
+        elif self._tail_side == "left":
             left = self._pet_x + self._pet_w + 6
+            top = self._pet_y + max(0, (self._pet_h - TOAST_HEIGHT) // 2)
         else:
             left = self._pet_x - TOAST_WIDTH - 6
-        top = self._pet_y + max(0, (self._pet_h - TOAST_HEIGHT) // 2)
-        work = monitor_work_area(self.hwnd)
-        left = max(work.left + 8, min(left, work.right - TOAST_WIDTH - 8))
-        top = max(work.top + 8, min(top, work.bottom - TOAST_HEIGHT - 8))
+            top = self._pet_y + max(0, (self._pet_h - TOAST_HEIGHT) // 2)
+        left, top = clamp_into(
+            left,
+            top,
+            TOAST_WIDTH,
+            TOAST_HEIGHT,
+            virtual_screen(),
+        )
         self.window.geometry(f"{TOAST_WIDTH}x{TOAST_HEIGHT}+{left}+{top}")
         user32.SetWindowPos(
             self.hwnd,
@@ -215,20 +240,36 @@ class PetToast:
     def _render(self) -> None:
         self.canvas.delete("all")
         self.canvas.configure(width=TOAST_WIDTH, height=TOAST_HEIGHT)
-        draw_speech_bubble(
-            self.canvas,
-            TOAST_WIDTH,
-            TOAST_HEIGHT,
-            fill=self._fill,
-            outline=self._border,
-            radius=self._radius,
-            tail_side=self._tail_side,
-            tail_size=TAIL,
-            inset=INSET,
-            tags="chrome",
-        )
-        text_left = PAD + (TAIL if self._tail_side == "left" else 0)
-        text_right = TOAST_WIDTH - PAD - (TAIL if self._tail_side == "right" else 0)
+        if self._style == "window":
+            draw_rounded_panel(
+                self.canvas,
+                INSET,
+                INSET,
+                TOAST_WIDTH - INSET,
+                TOAST_HEIGHT - INSET,
+                fill=self._fill,
+                outline=self._border,
+                radius=self._radius,
+                width=2,
+                tags="chrome",
+            )
+            text_left = PAD
+            text_right = TOAST_WIDTH - PAD
+        else:
+            draw_speech_bubble(
+                self.canvas,
+                TOAST_WIDTH,
+                TOAST_HEIGHT,
+                fill=self._fill,
+                outline=self._border,
+                radius=self._radius,
+                tail_side=self._tail_side,
+                tail_size=TAIL,
+                inset=INSET,
+                tags="chrome",
+            )
+            text_left = PAD + (TAIL if self._tail_side == "left" else 0)
+            text_right = TOAST_WIDTH - PAD - (TAIL if self._tail_side == "right" else 0)
         text_width = max(40, text_right - text_left)
         if self._mode == "resting":
             body = DEFAULT_RESTING_NOTICE

@@ -27,13 +27,15 @@ from .win32 import (
     SWP_NOACTIVATE,
     SWP_NOMOVE,
     SWP_NOSIZE,
+    SWP_SHOWWINDOW,
     SW_HIDE,
     SW_SHOWNOACTIVATE,
     WS_EX_LAYERED,
     WS_EX_NOACTIVATE,
     WS_EX_TOOLWINDOW,
     set_window_owner,
-    monitor_work_area,
+    clamp_into,
+    virtual_screen,
     user32,
 )
 
@@ -57,6 +59,7 @@ WM_CAPTURECHANGED = 0x0215
 HTCLIENT = 1
 HTTRANSPARENT = -1
 SWP_NOREDRAW = 0x0008
+VK_LBUTTON = 0x01
 ERROR_CLASS_ALREADY_EXISTS = 1410
 IDC_SIZENWSE = 32642
 IDC_SIZEALL = 32646
@@ -438,9 +441,13 @@ class PetOverlay:
         else:
             x = int(badge_x) + int(offset[0])
             y = int(badge_y) + int(offset[1])
-        work = monitor_work_area(self.hwnd)
-        x = max(work.left, min(int(x), work.right - self.atlas.cell_width))
-        y = max(work.top, min(int(y), work.bottom - self.atlas.cell_height))
+        x, y = clamp_into(
+            x,
+            y,
+            self.atlas.cell_width,
+            self.atlas.cell_height,
+            virtual_screen(),
+        )
         same_spot = x == self._x and y == self._y
         self._x = int(x)
         self._y = int(y)
@@ -510,6 +517,11 @@ class PetOverlay:
             return 0
         if msg == WM_CAPTURECHANGED:
             if self._dragging and int(wparam) != int(self.hwnd):
+                # Raising/reparenting the pet during a drag can steal capture.
+                # Keep the drag alive while the button is still down.
+                if user32.GetAsyncKeyState(VK_LBUTTON) & 0x8000:
+                    user32.SetCapture(self.hwnd)
+                    return 0
                 self._note_pointer("release")
             return 0
         if msg == WM_ERASEBKGND:
@@ -646,6 +658,21 @@ class PetOverlay:
     def _blit(self) -> bool:
         if self._bitmap is None:
             return False
+        # UpdateLayeredWindow alone does not change which monitor owns a
+        # layered window. Move with SetWindowPos first so the pet can follow
+        # the badge across displays, then paint.
+        flags = SWP_NOACTIVATE | SWP_NOREDRAW
+        if not self._hidden:
+            flags |= SWP_SHOWWINDOW
+        user32.SetWindowPos(
+            self.hwnd,
+            HWND_TOPMOST,
+            int(self._x),
+            int(self._y),
+            int(self._bitmap.width),
+            int(self._bitmap.height),
+            flags,
+        )
         dst = POINT(self._x, self._y)
         size = SIZE(self._bitmap.width, self._bitmap.height)
         src = POINT(0, 0)

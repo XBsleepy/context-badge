@@ -217,7 +217,7 @@ class PetClock:
         self.canvas.create_text(
             CLOCK_WIDTH // 2,
             18,
-            text="Rest",
+            text="Break",
             fill=self._muted,
             font=("Segoe UI Semibold", 9),
             tags="chrome",

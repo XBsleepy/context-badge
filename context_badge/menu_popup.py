@@ -13,6 +13,7 @@ from .rest_timer import (
     format_rest_interval,
     normalize_custom_minutes,
     normalize_custom_slot,
+    normalize_rest_alert_style,
     normalize_rest_message,
     normalize_rest_minutes,
 )
@@ -88,6 +89,7 @@ class MenuPopup:
         on_rest_minutes: Callable[[int, int | None], None] | None = None,
         on_rest_custom: Callable[[int, int | None], None] | None = None,
         on_rest_message: Callable[[str], None] | None = None,
+        on_rest_alert: Callable[[str], None] | None = None,
         on_hide_target: Callable[[str], None] | None = None,
     ) -> None:
         self.on_action = on_action
@@ -99,6 +101,7 @@ class MenuPopup:
         self.on_rest_minutes = on_rest_minutes
         self.on_rest_custom = on_rest_custom
         self.on_rest_message = on_rest_message
+        self.on_rest_alert = on_rest_alert
         self.on_hide_target = on_hide_target
         self.page = "main"
         self.open = False
@@ -121,6 +124,7 @@ class MenuPopup:
         self._rest_entries: list[tk.Entry] = []
         self._message_entry: tk.Entry | None = None
         self._rest_message = "Time to rest"
+        self._rest_alert = "pet"
         self._preset_panels: dict[int, int] = {}
         self._preset_labels: dict[int, int] = {}
         self._custom_panels: list[int] = []
@@ -203,6 +207,7 @@ class MenuPopup:
         custom_minutes: Sequence[int | None] | None = None,
         custom_slot: int | None = None,
         message: str | None = None,
+        alert_style: str | None = None,
     ) -> None:
         self._rest_enabled = bool(enabled)
         self._rest_paused = bool(paused)
@@ -216,6 +221,8 @@ class MenuPopup:
         )
         if message is not None:
             self._rest_message = normalize_rest_message(message)
+        if alert_style is not None:
+            self._rest_alert = normalize_rest_alert_style(alert_style)
         if self.page != "rest":
             return
         if self._custom_focused():
@@ -357,7 +364,7 @@ class MenuPopup:
             rows.insert(insert_at, ("pet", "Pet  ›"))
             insert_at += 1
         if "rest" not in keys:
-            rows.insert(insert_at, ("rest", "Rest  ›"))
+            rows.insert(insert_at, ("rest", "Break  ›"))
             insert_at += 1
         if "hide" not in keys:
             rows.insert(insert_at, ("hide", "Hide  ›"))
@@ -525,13 +532,16 @@ class MenuPopup:
             + 18
             + SECTION_HEIGHT
             + PILL_H
+            + 10
+            + SECTION_HEIGHT
+            + PILL_H
             + PAD
         )
         self._paint_card()
         self.canvas.create_rectangle(
             INSET + 4,
             6,
-            78,
+            86,
             HEADER_HEIGHT - 2,
             fill=self._fill,
             outline=self._fill,
@@ -541,7 +551,7 @@ class MenuPopup:
             PAD,
             HEADER_HEIGHT // 2 + 2,
             anchor="w",
-            text="‹  Rest",
+            text="‹  Break",
             fill=self._muted,
             font=("Segoe UI Semibold", 10),
             tags="back",
@@ -552,6 +562,9 @@ class MenuPopup:
         y = self._section(y, "Every")
         y = self._draw_rest_interval_pills(y)
         y += 16
+        y = self._section(y, "Alert")
+        y = self._draw_rest_alert_pills(y)
+        y += 10
         y = self._section(y, "Message")
         self._draw_rest_message_field(y)
 
@@ -638,6 +651,41 @@ class MenuPopup:
             x2 = x1 + pill_w
             y2 = y + PILL_H
             tag = f"restmode:{key}"
+            draw_rounded_panel(
+                self.canvas,
+                x1,
+                y,
+                x2,
+                y2,
+                fill=self._text if chosen else self._fill,
+                outline=self._border,
+                radius=min(12, PILL_H // 2),
+                width=1,
+                tags=tag,
+            )
+            self.canvas.create_text(
+                (x1 + x2) // 2,
+                (y + y2) // 2,
+                text=label,
+                fill=self._fill if chosen else self._text,
+                font=("Segoe UI Semibold", 9),
+                tags=tag,
+            )
+        return y + PILL_H
+
+    def _draw_rest_alert_pills(self, y: int) -> int:
+        gap = 6
+        pills = (
+            ("pet", "Pet", self._rest_alert == "pet"),
+            ("window", "Window", self._rest_alert == "window"),
+        )
+        count = len(pills)
+        pill_w = (self.width - 2 * PAD - gap * (count - 1)) // count
+        for index, (key, label, chosen) in enumerate(pills):
+            x1 = PAD + index * (pill_w + gap)
+            x2 = x1 + pill_w
+            y2 = y + PILL_H
+            tag = f"restalert:{key}"
             draw_rounded_panel(
                 self.canvas,
                 x1,
@@ -1149,6 +1197,13 @@ class MenuPopup:
                 mode = tag.split(":", 1)[1]
                 if self.on_rest_action is not None:
                     self.on_rest_action(mode)
+                return
+            if tag.startswith("restalert:"):
+                style = normalize_rest_alert_style(tag.split(":", 1)[1])
+                self._rest_alert = style
+                if self.on_rest_alert is not None:
+                    self.on_rest_alert(style)
+                self._render()
                 return
             if tag.startswith("restsec:") or tag.startswith("restmin:"):
                 minutes = normalize_rest_minutes(tag.split(":", 1)[1])

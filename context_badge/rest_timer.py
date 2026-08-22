@@ -15,6 +15,19 @@ DEFAULT_REST_SECONDS = DEFAULT_REST_MINUTES * 60
 DEFAULT_REST_MESSAGE = "Time to rest"
 DEFAULT_RESTING_NOTICE = "Resting. Tap Ack when you're back."
 MAX_REST_MESSAGE = 80
+REST_ALERT_PET = "pet"
+REST_ALERT_WINDOW = "window"
+REST_ALERT_STYLES = (REST_ALERT_PET, REST_ALERT_WINDOW)
+DEFAULT_REST_ALERT = REST_ALERT_PET
+
+
+def normalize_rest_alert_style(value: object) -> str:
+    text = str(value or DEFAULT_REST_ALERT).strip().lower()
+    if text in ("window", "dialog", "popup"):
+        return REST_ALERT_WINDOW
+    if text in ("pet", "bubble", "toast"):
+        return REST_ALERT_PET
+    return DEFAULT_REST_ALERT
 
 
 def normalize_rest_minutes(value: object) -> int:

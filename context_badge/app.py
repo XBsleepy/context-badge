@@ -54,6 +54,7 @@ from .rest_timer import (
     minutes_from_seconds,
     normalize_custom_minutes,
     normalize_custom_slot,
+    normalize_rest_alert_style,
     normalize_rest_message,
     normalize_rest_minutes,
     seed_custom_minutes,
@@ -90,6 +91,7 @@ from .win32 import (
     SWP_NOMOVE,
     SWP_NOSIZE,
     SWP_SHOWWINDOW,
+    SWP_HIDEWINDOW,
     SW_HIDE,
     SW_SHOWNOACTIVATE,
     WS_EX_APPWINDOW,
@@ -100,6 +102,8 @@ from .win32 import (
     executable_name,
     friendly_app_name,
     monitor_work_area,
+    clamp_into,
+    virtual_screen,
     root_hwnd,
     set_window_owner,
     user32,
@@ -287,6 +291,7 @@ class ContextBadge:
             on_rest_minutes=self._set_rest_minutes,
             on_rest_custom=self._set_rest_custom,
             on_rest_message=self._set_rest_message,
+            on_rest_alert=self._set_rest_alert,
             on_hide_target=self._set_hide_target,
         )
         self.menu.set_actions(self._menu_actions())
@@ -400,7 +405,7 @@ class ContextBadge:
         )
         self._sync_pet_clock()
         if self.rest_timer_awaiting:
-            self.root.after(0, self._show_rest_toast)
+            self.root.after(0, self._show_rest_alert)
         self.root.after(0, self.refresh)
 
     def _ensure_dwell_config(self) -> None:
@@ -566,6 +571,11 @@ class ContextBadge:
             changed = True
         self.rest_timer_awaiting = awaiting
         self.rest_timer_break = on_break
+        alert_style = normalize_rest_alert_style(self.config.get("rest_alert_style"))
+        if self.config.get("rest_alert_style") != alert_style:
+            self.config["rest_alert_style"] = alert_style
+            changed = True
+        self.rest_alert_style = alert_style
         if changed:
             self._save_config()
 
@@ -664,7 +674,7 @@ class ContextBadge:
         path.write_text(json.dumps(self.config, indent=2), encoding="utf-8")
 
     def _save_position(self) -> None:
-        x, y = self.root.winfo_x(), self.root.winfo_y()
+        x, y = self._badge_origin()
         self.config.update(
             {
                 "x": x,
@@ -675,6 +685,16 @@ class ContextBadge:
         )
         self._save_config()
         self.saved_position = (x, y)
+
+    def _badge_origin(self) -> tuple[int, int]:
+        if self.badge_hidden and self.saved_position is not None:
+            return int(self.saved_position[0]), int(self.saved_position[1])
+        try:
+            return int(self.root.winfo_x()), int(self.root.winfo_y())
+        except tk.TclError:
+            if self.saved_position is not None:
+                return int(self.saved_position[0]), int(self.saved_position[1])
+            return 0, 0
 
     def _set_click_through(self, enabled: bool) -> None:
         style = user32.GetWindowLongW(self.overlay_hwnd, GWL_EXSTYLE)
@@ -819,6 +839,8 @@ class ContextBadge:
         )
 
     def _raise_edit_control(self) -> None:
+        if getattr(self, "_pet_dragging", False):
+            return
         if self.minimized or self.badge_hidden:
             if hasattr(self, "pet"):
                 self.pet.raise_pet()
@@ -1043,6 +1065,13 @@ class ContextBadge:
         if hasattr(self, "pet_toast"):
             set_window_owner(self.pet_toast.hwnd, GWLP_HWNDPARENT, 0)
         self.badge_hidden = True
+        try:
+            self.saved_position = (
+                int(self.root.winfo_x()),
+                int(self.root.winfo_y()),
+            )
+        except tk.TclError:
+            pass
         if hasattr(self, "pet"):
             self.pet.set_owner(0)
         user32.ShowWindow(self.overlay_hwnd, SW_HIDE)
@@ -1084,14 +1113,14 @@ class ContextBadge:
             if not self.minimized:
                 self._set_position(self.root.winfo_x(), self.root.winfo_y())
             if self.rest_timer_awaiting:
-                self._show_rest_toast()
+                self._show_rest_alert()
             return
         self.pet_session_hidden = True
         if hasattr(self, "pet_clock"):
             self.pet_clock.hide()
         self.pet.hide()
         if self.rest_timer_awaiting:
-            self._show_rest_toast()
+            self._show_rest_alert()
         elif hasattr(self, "pet_toast"):
             self.pet_toast.hide()
 
@@ -1160,7 +1189,7 @@ class ContextBadge:
         self.list_bar.show()
         self._apply_theme()
         if self.rest_timer_awaiting:
-            self._show_rest_toast()
+            self._show_rest_alert()
 
     def _menu_actions(self) -> list[tuple[str, str]]:
         return [
@@ -1236,6 +1265,7 @@ class ContextBadge:
         self._save_config()
 
     def _on_pet_pointer(self, phase: str, x: int, y: int) -> None:
+        can_move = (not self.position_locked) or self.badge_hidden
         if phase == "press":
             self._pet_press = (x, y)
             self._pet_dragging = False
@@ -1243,15 +1273,16 @@ class ContextBadge:
                 self._pet_size_origin = (x, y, self.pet_scale_percent)
             elif self.pet_place_mode:
                 self._pet_place_origin = (x, y, self._pet_layout_offset())
-            elif not self.position_locked:
-                self.drag_offset = (x - self.root.winfo_x(), y - self.root.winfo_y())
+            elif can_move:
+                origin_x, origin_y = self._badge_origin()
+                self.drag_offset = (x - origin_x, y - origin_y)
             return
         if phase == "drag":
             if self.pet_size_mode:
                 self._drag_pet_size(x, y)
             elif self.pet_place_mode:
                 self._drag_pet_place(x, y)
-            elif self._pet_press is not None and not self.position_locked:
+            elif self._pet_press is not None and can_move:
                 if not self._pet_dragging:
                     origin_x, origin_y = self._pet_press
                     dx = x - origin_x
@@ -1260,8 +1291,8 @@ class ContextBadge:
                         return
                     self._pet_dragging = True
                     self._body_dragging = True
-                    self._set_menu_open(False)
-                    self._draw_control_strip()
+                    if self.menu_open:
+                        self._set_menu_open(False)
                 self._move_to_pointer(x, y)
             return
         if self.pet_size_mode or self.pet_place_mode:
@@ -1296,7 +1327,7 @@ class ContextBadge:
         self._pet_dragging = True
         self.pet_offset_x = offset_x + (x - start_x)
         self.pet_offset_y = offset_y + (y - start_y)
-        self._set_position(self.root.winfo_x(), self.root.winfo_y())
+        self._set_position(*self._badge_origin())
 
     def _drag_pet_size(self, x: int, y: int) -> None:
         if self._pet_size_origin is None or self.pet.atlas is None:
@@ -1317,7 +1348,7 @@ class ContextBadge:
                 old, new, (self.pet_offset_x, self.pet_offset_y)
             )
         self._pet_dragging = True
-        self._set_position(self.root.winfo_x(), self.root.winfo_y())
+        self._set_position(*self._badge_origin())
 
     def _toggle_lock(self) -> None:
         self.position_locked = not self.position_locked
@@ -1445,6 +1476,17 @@ class ContextBadge:
                 mode="resting" if self.rest_timer_break else "alarm",
             )
 
+    def _set_rest_alert(self, style: str) -> None:
+        chosen = normalize_rest_alert_style(style)
+        if chosen == self.rest_alert_style:
+            return
+        self.rest_alert_style = chosen
+        self.config["rest_alert_style"] = chosen
+        self._save_config()
+        self._sync_menu()
+        if self.rest_timer_awaiting:
+            self._show_rest_alert()
+
     def _set_hide_target(self, target: str) -> None:
         chosen = normalize_hide_target(target)
         self.hide_target = chosen
@@ -1519,7 +1561,7 @@ class ContextBadge:
         self.rest_timer_awaiting = True
         self.rest_timer_break = False
         self._save_rest_wait_state()
-        self._show_rest_toast()
+        self._show_rest_alert()
         self._sync_pet_clock()
 
     def _clear_rest_wait(self) -> None:
@@ -1546,7 +1588,7 @@ class ContextBadge:
             paused=False,
             awaiting=True,
         )
-        self._show_rest_toast()
+        self._show_rest_alert()
         self._sync_pet_clock()
 
     def _ack_rest_break(self) -> None:
@@ -1573,14 +1615,26 @@ class ContextBadge:
             width, height = self.pet.size
             if width > 0 and height > 0:
                 return ox, oy, width, height
-        x = self.root.winfo_x()
-        y = self.root.winfo_y()
+        x, y = self._badge_origin()
         return x, y, self.badge_width, self.badge_height
 
-    def _show_rest_toast(self) -> None:
+    def _effective_rest_alert_style(self) -> str:
+        if self.rest_alert_style == "window":
+            return "window"
+        pet_ok = (
+            hasattr(self, "pet")
+            and self.pet.enabled
+            and self.pet.atlas is not None
+            and not self.pet_session_hidden
+            and not self.minimized
+        )
+        return "pet" if pet_ok else "window"
+
+    def _show_rest_alert(self) -> None:
         if not hasattr(self, "pet_toast"):
             return
-        if self.minimized:
+        style = self._effective_rest_alert_style()
+        if style == "pet" and self.minimized:
             return
         self.pet_toast.apply_chrome(
             fill=self.list_background_color,
@@ -1596,7 +1650,7 @@ class ContextBadge:
             mode="resting" if self.rest_timer_break else "alarm",
         )
         self._attach_owned_overlays()
-        self.pet_toast.show_beside(*self._pet_toast_rect())
+        self.pet_toast.show_beside(*self._pet_toast_rect(), style=style)
         self.pet_toast.raise_popup()
 
     def _on_toast_action(self, action_id: str) -> None:
@@ -1650,6 +1704,7 @@ class ContextBadge:
             custom_minutes=self.rest_timer_custom_minutes,
             custom_slot=self.rest_timer_custom_slot,
             message=self.rest_timer_message,
+            alert_style=self.rest_alert_style,
         )
         self.menu.set_hide_target(self.hide_target)
         self.menu.apply_chrome(
@@ -2147,17 +2202,25 @@ class ContextBadge:
     def _set_position(self, x: int, y: int) -> None:
         if self.minimized:
             return
+        x, y = clamp_into(
+            x,
+            y,
+            self.badge_width,
+            self.badge_height,
+            virtual_screen(),
+        )
         self.root.geometry(f"{self.badge_width}x{self.badge_height}+{x}+{y}")
+        user32.SetWindowPos(
+            self.overlay_hwnd,
+            HWND_TOPMOST,
+            x,
+            y,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOACTIVATE
+            | (SWP_HIDEWINDOW if self.badge_hidden else SWP_SHOWWINDOW),
+        )
         if not self.badge_hidden:
-            user32.SetWindowPos(
-                self.overlay_hwnd,
-                HWND_TOPMOST,
-                x,
-                y,
-                0,
-                0,
-                SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
-            )
             if hasattr(self, "hit_hwnd"):
                 hit_w = self._hit_body_width()
                 self.hit_window.geometry(f"{hit_w}x{self.badge_height}+{x}+{y}")
@@ -2213,7 +2276,9 @@ class ContextBadge:
             self.pet_toast.set_pet_rect(*self._pet_toast_rect())
 
     def _move_to_active_monitor(self, foreground: int) -> None:
-        if self.minimized:
+        if self.minimized or getattr(self, "_pet_dragging", False) or getattr(
+            self, "_body_dragging", False
+        ):
             return
         if self.saved_position is not None:
             self._set_position(*self.saved_position)
