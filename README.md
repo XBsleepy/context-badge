@@ -82,7 +82,10 @@ badge body to move it. Long-press `Menu` is a second handle; a short click
 opens a standalone rounded menu. `Appearance ›` is a second page in that
 popup, so later pages can be added without crowding the badge. `Pet ›` has
 **Place** and **Size**: pick one, then drag the pet. Dragging the pet itself
-also moves the badge, same as dragging the box.
+also moves the badge, same as dragging the box. You can drag across
+monitors. Click the pet (no drag) to open the rest clock beside it.
+`Break ›` configures the break timer; `Hide ›` chooses what the Hide tab
+conceals (badge, pet, or all).
 
 ### Fix
 
@@ -170,6 +173,28 @@ packaged):
 The player already has a state machine for waiting, working, look-at-pointer,
 and one-shots; only idle is driven in this pass.
 
+### Break timer
+
+`Menu` → `Break ›` turns on a wall-clock break reminder. Choose **On**,
+**Paused**, or **Off**. Preset intervals are **15 / 30 / 60** minutes
+(default 60). Three empty slots accept a typed minute value (1–180); Enter
+saves that slot and selects it. Click the pet to open a countdown clock
+with Start / Pause / Off. When the timer fires, **Alert** chooses the notice:
+**Pet** (speech bubble beside the pet) or **Window** (a standalone popup).
+The next countdown does **not** start yet. **Rest** switches to a waiting
+notice; **Ack** when you are back starts the next interval. **Pause**
+freezes the timer instead. Edit the text in `Break ›` → **Message** (saved
+as `rest_timer_message`, default `Time to rest`). Preferences:
+
+- `rest_timer_enabled` (default false)
+- `rest_timer_paused` (default false)
+- `rest_timer_minutes` (default 60; older `rest_timer_seconds` is migrated)
+- `rest_timer_custom_minutes` (three optional saved slots)
+- `rest_timer_custom_slot` (which custom slot is selected, if any)
+- `rest_timer_message` (notice text, default `Time to rest`)
+- `rest_alert_style` (`pet` or `window`, default `pet`)
+- `rest_timer_awaiting` / `rest_timer_break` (alarm and rest-ack handshake)
+
 ### Time analysis
 
 Foreground stays shorter than `dwell_noise_seconds` (default 8) are treated as
@@ -177,20 +202,29 @@ noise. Once a stay crosses that threshold it is checkpointed, then refreshed
 every `dwell_checkpoint_seconds` (default 60) so a crash still has a recent
 value.
 
-`Time analysis` opens a separate day report:
+`Time analysis` opens a separate day report. History is stored as append-only
+JSONL; a sidecar day-offset index loads only the selected day (rebuilt on
+demand if missing). The report shows:
 
-- App totals for the selected date, ranked by dwell time
-- A compact 24-hour ribbon (consecutive same-app stays merged)
+- App totals for the selected date, ranked by dwell time (lock screen and
+  Start menu / Search overlays are recorded but omitted from the headline
+  total, shares, and app ranking)
+- A compact 24-hour ribbon (consecutive same-app stays merged; lock screen and
+  Start menu sit close to the current report background)
 - A scrollable timeline of each recorded switch
 
-`‹` / `›` change date; `Today` jumps back. Scroll the colour bar to zoom, drag
-to pan, double-click to reset. This is an early, local report — not an AI
-summary.
+App chips use the same accent swatches as Appearance. The window chrome follows
+the current badge theme. `‹` / `›` change date; `Today` jumps back. Scroll the
+colour bar to zoom, drag to pan, double-click to reset. This is an early, local
+report — not an AI summary.
 
 ### Hide and Close
 
-`Hide` minimizes the badge to the taskbar. Dwell tracking keeps running.
-`Close` quits.
+`Menu` → `Hide ›` picks what the Hide tab does: **Badge** (pet stays; drag
+the pet to move it, click to bring the badge back), **Pet** (toggle pet
+visibility), or **All** (minimize everything to the taskbar, previous
+default). Dwell tracking keeps running. Preference: `hide_target`
+(`badge` / `pet` / `all`, default `all`). `Close` quits.
 
 ## Privacy
 
@@ -222,10 +256,13 @@ context_badge/
 ├── analysis_window.py  day report window
 ├── dwell.py            foreground stay tracking
 ├── dwell_report.py     app totals and day slices
-├── dwell_store.py      dual-backup JSON/JSONL persistence
+├── dwell_store.py      dual-backup JSON/JSONL persistence + day index
+├── rest_timer.py       optional break reminder schedule
+├── pet_clock.py        pet-click rest countdown flyout
+├── pet_toast.py        pet-side rest reminder bubble
 ├── layout.py           size-dependent type and spacing
 ├── bubble.py           hanging paper-bubble outline
-├── menu_popup.py       standalone rounded menu and Appearance page
+├── menu_popup.py       menu pages: Appearance / Pet / Break / Hide
 ├── list_bar.py         todo panel with Base and per-tab lists
 ├── list_store.py       dual-backup todo persistence
 ├── pet_spec.py         Codex v2 clip table and look-cell map

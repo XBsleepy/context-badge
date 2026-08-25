@@ -38,6 +38,13 @@ def dwell_log_path() -> Path:
     return _runtime_dir() / ".context-badge-dwell.jsonl"
 
 
+def dwell_index_path() -> Path:
+    """Return the optional day-offset index beside the dwell log."""
+    if is_frozen():
+        return _runtime_dir() / "dwell-index.json"
+    return _runtime_dir() / ".context-badge-dwell-index.json"
+
+
 def dwell_active_path() -> Path:
     """Return the in-progress dwell session file."""
     if is_frozen():

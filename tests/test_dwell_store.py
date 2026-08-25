@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 
 from context_badge.dwell_store import DwellStore, backup_path
@@ -12,7 +13,12 @@ class DwellStoreTests(unittest.TestCase):
         self.dir = Path(self.temp.name)
         self.log_path = self.dir / "dwell.jsonl"
         self.active_path = self.dir / "dwell-active.json"
-        self.store = DwellStore(self.log_path, self.active_path)
+        self.index_path = self.dir / "dwell-index.json"
+        self.store = DwellStore(
+            self.log_path,
+            self.active_path,
+            index_path=self.index_path,
+        )
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -45,6 +51,73 @@ class DwellStoreTests(unittest.TestCase):
         self.log_path.write_bytes(b"\xff\xfe totally broken")
         records = self.store.load_history()
         self.assertEqual([item["id"] for item in records], ["first", "second"])
+
+    def test_append_extends_backup_without_full_rewrite(self) -> None:
+        first = {
+            "id": "a",
+            "started_at": "2026-08-16T10:00:00+08:00",
+            "ended_at": "2026-08-16T10:01:00+08:00",
+            "duration_ms": 60_000,
+        }
+        self.store.append_session(first)
+        bak_size = backup_path(self.log_path).stat().st_size
+        second = {
+            "id": "b",
+            "started_at": "2026-08-16T11:00:00+08:00",
+            "ended_at": "2026-08-16T11:01:00+08:00",
+            "duration_ms": 60_000,
+        }
+        self.store.append_session(second)
+        self.assertGreater(backup_path(self.log_path).stat().st_size, bak_size)
+        self.assertEqual(
+            [item["id"] for item in self.store.load_history()],
+            ["a", "b"],
+        )
+
+    def test_day_index_loads_only_matching_day(self) -> None:
+        day_a = date(2026, 8, 16)
+        day_b = date(2026, 8, 17)
+        self.store.append_session(
+            {
+                "id": "a",
+                "app": "A",
+                "started_at": "2026-08-16T10:00:00+08:00",
+                "ended_at": "2026-08-16T10:05:00+08:00",
+                "duration_ms": 300_000,
+            }
+        )
+        self.store.append_session(
+            {
+                "id": "b",
+                "app": "B",
+                "started_at": "2026-08-17T10:00:00+08:00",
+                "ended_at": "2026-08-17T10:05:00+08:00",
+                "duration_ms": 300_000,
+            }
+        )
+        self.assertEqual(
+            [item["id"] for item in self.store.load_history_for_day(day_a)],
+            ["a"],
+        )
+        self.assertEqual(
+            [item["id"] for item in self.store.load_history_for_day(day_b)],
+            ["b"],
+        )
+        self.assertTrue(self.index_path.is_file())
+
+    def test_missing_index_rebuilds_on_demand(self) -> None:
+        self.store.append_session(
+            {
+                "id": "solo",
+                "started_at": "2026-08-18T12:00:00+08:00",
+                "ended_at": "2026-08-18T12:01:00+08:00",
+                "duration_ms": 60_000,
+            }
+        )
+        self.index_path.unlink()
+        records = self.store.load_history_for_day(date(2026, 8, 18))
+        self.assertEqual([item["id"] for item in records], ["solo"])
+        self.assertTrue(self.index_path.is_file())
 
 
 if __name__ == "__main__":

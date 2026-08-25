@@ -4,16 +4,21 @@ from datetime import date, datetime, timedelta, timezone
 from context_badge.dwell_report import (
     aggregate_by_app,
     clip_session,
+    counted_duration_ms,
     day_range,
     format_duration,
     format_percent,
+    is_idle_slice,
+    is_lock_slice,
     merge_adjacent_by_app,
     pan_view,
+    slice_colour,
     slices_for_day,
     slices_in_range,
     tick_times,
     zoom_view,
 )
+from context_badge.theme import APP_COLOURS, COLOUR_PALETTE, LOCK_COLOUR
 
 
 TZ = timezone.utc
@@ -24,15 +29,21 @@ def session(
     start: str,
     end: str,
     surface: str = "",
+    *,
+    executable: str = "",
+    title: str = "",
 ) -> dict:
-    return {
+    payload = {
         "app": app,
         "surface": surface or app,
-        "title": surface or app,
+        "title": title or surface or app,
         "started_at": start,
         "ended_at": end,
         "duration_ms": 0,
     }
+    if executable:
+        payload["executable"] = executable
+    return payload
 
 
 class DwellReportTests(unittest.TestCase):
@@ -156,6 +167,89 @@ class DwellReportTests(unittest.TestCase):
         )
         self.assertEqual(len(visible), 1)
         self.assertEqual(visible[0].duration_ms, 2 * 60 * 60 * 1000)
+
+    def test_lock_sessions_are_omitted_from_totals(self) -> None:
+        records = [
+            session(
+                "Chrome",
+                "2026-08-16T10:00:00+00:00",
+                "2026-08-16T10:10:00+00:00",
+            ),
+            session(
+                "Lock screen",
+                "2026-08-16T10:10:00+00:00",
+                "2026-08-16T10:40:00+00:00",
+                executable="LockApp.exe",
+            ),
+        ]
+        slices = slices_for_day(records, date(2026, 8, 16), tzinfo=TZ)
+        self.assertEqual(len(slices), 2)
+        self.assertTrue(is_lock_slice(slices[1]))
+        self.assertEqual(counted_duration_ms(slices), 10 * 60_000)
+        totals = aggregate_by_app(slices)
+        self.assertEqual([item.app for item in totals], ["Chrome"])
+
+    def test_legacy_lockapp_name_is_treated_as_lock(self) -> None:
+        records = [
+            session("Lockapp", "2026-08-16T10:00:00+00:00", "2026-08-16T10:05:00+00:00")
+        ]
+        slices = slices_for_day(records, date(2026, 8, 16), tzinfo=TZ)
+        self.assertTrue(is_lock_slice(slices[0]))
+        self.assertEqual(counted_duration_ms(slices), 0)
+
+    def test_lock_title_is_detected_without_executable(self) -> None:
+        records = [
+            session(
+                "Application",
+                "2026-08-16T10:00:00+00:00",
+                "2026-08-16T10:02:00+00:00",
+                title="Windows Default Lock Screen",
+            )
+        ]
+        slices = slices_for_day(records, date(2026, 8, 16), tzinfo=TZ)
+        self.assertTrue(is_lock_slice(slices[0]))
+        self.assertEqual(slice_colour(slices[0]), LOCK_COLOUR)
+
+    def test_start_menu_host_is_omitted_from_totals(self) -> None:
+        records = [
+            session(
+                "Cursor",
+                "2026-08-16T10:00:00+00:00",
+                "2026-08-16T10:10:00+00:00",
+            ),
+            session(
+                "Startmenuexperiencehost",
+                "2026-08-16T10:10:00+00:00",
+                "2026-08-16T10:12:00+00:00",
+                executable="StartMenuExperienceHost.exe",
+            ),
+        ]
+        slices = slices_for_day(records, date(2026, 8, 16), tzinfo=TZ)
+        self.assertTrue(is_idle_slice(slices[1]))
+        self.assertFalse(is_lock_slice(slices[1]))
+        self.assertEqual(counted_duration_ms(slices), 10 * 60_000)
+        self.assertEqual(slice_colour(slices[1]), LOCK_COLOUR)
+        self.assertEqual([item.app for item in aggregate_by_app(slices)], ["Cursor"])
+
+    def test_clip_session_keeps_executable(self) -> None:
+        start, end = day_range(date(2026, 8, 16), tzinfo=TZ)
+        item = clip_session(
+            session(
+                "Chrome",
+                "2026-08-16T10:00:00+00:00",
+                "2026-08-16T10:01:00+00:00",
+                executable="chrome.exe",
+            ),
+            start,
+            end,
+        )
+        assert item is not None
+        self.assertEqual(item.executable, "chrome.exe")
+
+    def test_app_colours_come_from_the_badge_palette(self) -> None:
+        self.assertTrue(set(APP_COLOURS).issubset(COLOUR_PALETTE))
+        self.assertIn(LOCK_COLOUR, COLOUR_PALETTE)
+        self.assertNotIn(LOCK_COLOUR, APP_COLOURS)
 
 
 if __name__ == "__main__":

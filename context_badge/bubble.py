@@ -176,6 +176,60 @@ def draw_rounded_panel(
     )
 
 
+def draw_speech_bubble(
+    canvas: Any,
+    width: int,
+    height: int,
+    *,
+    fill: str,
+    outline: str,
+    radius: int,
+    tail_side: str = "left",
+    tail_size: int = 10,
+    inset: int = 2,
+    tags: tuple[str, ...] | str = "chrome",
+) -> None:
+    """Rounded card with a triangular tail on the left or right."""
+    tail = max(6, int(tail_size))
+    pad = max(1, int(inset))
+    if tail_side == "right":
+        body_x1 = pad
+        body_x2 = width - pad - tail
+        tip_x = width - pad
+        base_x = body_x2
+    else:
+        body_x1 = pad + tail
+        body_x2 = width - pad
+        tip_x = pad
+        base_x = body_x1
+    body_y1 = pad
+    body_y2 = height - pad
+    mid_y = (body_y1 + body_y2) / 2.0
+    draw_rounded_panel(
+        canvas,
+        body_x1,
+        body_y1,
+        body_x2,
+        body_y2,
+        fill=fill,
+        outline=outline,
+        radius=radius,
+        width=2,
+        tags=tags,
+    )
+    canvas.create_polygon(
+        tip_x,
+        mid_y,
+        base_x,
+        mid_y - tail,
+        base_x,
+        mid_y + tail,
+        fill=fill,
+        outline=fill,
+        tags=tags,
+    )
+
+
 def content_box(
     width: int,
     height: int,

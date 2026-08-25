@@ -7,6 +7,7 @@ from unittest.mock import patch
 from context_badge.paths import (
     config_path,
     dwell_active_path,
+    dwell_index_path,
     dwell_log_path,
     find_pet_folder,
     lists_path,
@@ -38,9 +39,11 @@ class PathTests(unittest.TestCase):
         with patch.object(sys, "frozen", False, create=True):
             log_path = dwell_log_path()
             active_path = dwell_active_path()
+            index_path = dwell_index_path()
         root = Path(__file__).resolve().parents[1]
         self.assertEqual(log_path, root / ".context-badge-dwell.jsonl")
         self.assertEqual(active_path, root / ".context-badge-dwell-active.json")
+        self.assertEqual(index_path, root / ".context-badge-dwell-index.json")
 
     def test_frozen_dwell_files_use_localappdata(self) -> None:
         with patch.object(sys, "frozen", True, create=True):
@@ -49,9 +52,11 @@ class PathTests(unittest.TestCase):
             ):
                 log_path = dwell_log_path()
                 active_path = dwell_active_path()
+                index_path = dwell_index_path()
         base = Path(r"C:\Users\Test\AppData\Local") / "Context Badge"
         self.assertEqual(log_path, base / "dwell.jsonl")
         self.assertEqual(active_path, base / "dwell-active.json")
+        self.assertEqual(index_path, base / "dwell-index.json")
 
     def test_source_lists_file_sits_beside_the_repo(self) -> None:
         with patch.object(sys, "frozen", False, create=True):
