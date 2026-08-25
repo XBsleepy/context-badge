@@ -6,15 +6,37 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any
 
-APP_COLOURS = (
-    "#5b8def",
-    "#34d399",
-    "#fbbf24",
-    "#f472b6",
-    "#a78bfa",
-    "#22d3ee",
-    "#fb7185",
-    "#84cc16",
+from .theme import APP_COLOURS, LOCK_COLOUR
+
+LOCK_EXECUTABLES = frozenset({"lockapp.exe", "logonui.exe"})
+LOCK_APP_NAMES = frozenset(
+    {"lockapp", "lock app", "lock screen", "logonui"}
+)
+LOCK_TITLES = frozenset(
+    {"windows default lock screen", "windows 默认锁屏", "锁屏"}
+)
+# Windows shell overlays that steal foreground without being real work.
+SHELL_EXECUTABLES = frozenset(
+    {
+        "startmenuexperiencehost.exe",
+        "searchhost.exe",
+        "searchapp.exe",
+        "shellexperiencehost.exe",
+        "textinputhost.exe",
+    }
+)
+SHELL_APP_NAMES = frozenset(
+    {
+        "start menu",
+        "startmenuexperiencehost",
+        "search",
+        "searchhost",
+        "searchapp",
+        "windows shell",
+        "shellexperiencehost",
+        "text input",
+        "textinputhost",
+    }
 )
 
 
@@ -26,6 +48,7 @@ class DaySlice:
     started_at: datetime
     ended_at: datetime
     duration_ms: int
+    executable: str = ""
 
 
 @dataclass(frozen=True)
@@ -85,6 +108,7 @@ def clip_session(
     app = str(session.get("app") or "Unknown").strip() or "Unknown"
     surface = str(session.get("surface") or session.get("title") or app)
     title = str(session.get("title") or surface)
+    executable = str(session.get("executable") or "").strip()
     return DaySlice(
         app=app,
         surface=surface,
@@ -92,6 +116,7 @@ def clip_session(
         started_at=clipped_start,
         ended_at=clipped_end,
         duration_ms=duration_ms,
+        executable=executable,
     )
 
 
@@ -108,9 +133,42 @@ def slices_for_day(
     return slices
 
 
+def is_lock_slice(item: DaySlice) -> bool:
+    exe = item.executable.strip().lower()
+    if exe in LOCK_EXECUTABLES:
+        return True
+    if item.app.strip().lower() in LOCK_APP_NAMES:
+        return True
+    title = item.title.strip().lower()
+    surface = item.surface.strip().lower()
+    if title in LOCK_TITLES or surface in LOCK_TITLES:
+        return True
+    if "lock screen" in title or "lock screen" in surface:
+        return True
+    return title.endswith("锁屏") or surface.endswith("锁屏")
+
+
+def is_idle_slice(item: DaySlice) -> bool:
+    """Lock screen plus Start / Search / IME overlays — recorded, not counted."""
+    if is_lock_slice(item):
+        return True
+    exe = item.executable.strip().lower()
+    if exe in SHELL_EXECUTABLES:
+        return True
+    return item.app.strip().lower() in SHELL_APP_NAMES
+
+
+def active_slices(slices: list[DaySlice]) -> list[DaySlice]:
+    return [item for item in slices if not is_idle_slice(item)]
+
+
+def counted_duration_ms(slices: list[DaySlice]) -> int:
+    return sum(item.duration_ms for item in active_slices(slices))
+
+
 def aggregate_by_app(slices: list[DaySlice]) -> list[AppTotal]:
     totals: dict[str, AppTotal] = {}
-    for item in slices:
+    for item in active_slices(slices):
         current = totals.get(item.app)
         if current is None:
             totals[item.app] = AppTotal(item.app, item.duration_ms, 1)
@@ -156,6 +214,12 @@ def app_colour(name: str) -> str:
     return APP_COLOURS[digest % len(APP_COLOURS)]
 
 
+def slice_colour(item: DaySlice, *, lock_colour: str = LOCK_COLOUR) -> str:
+    if is_idle_slice(item):
+        return lock_colour
+    return app_colour(item.app)
+
+
 def merge_adjacent_by_app(slices: list[DaySlice]) -> list[DaySlice]:
     """Collapse consecutive same-app slices for compact overview bars."""
     if not slices:
@@ -172,6 +236,7 @@ def merge_adjacent_by_app(slices: list[DaySlice]) -> list[DaySlice]:
                 started_at=last.started_at,
                 ended_at=max(last.ended_at, item.ended_at),
                 duration_ms=last.duration_ms + item.duration_ms,
+                executable=last.executable,
             )
         else:
             merged.append(item)
@@ -259,6 +324,7 @@ def clip_slice(item: DaySlice, start: datetime, end: datetime) -> DaySlice | Non
         started_at=clipped_start,
         ended_at=clipped_end,
         duration_ms=duration_ms,
+        executable=item.executable,
     )
 
 

@@ -206,13 +206,17 @@ value.
 JSONL; a sidecar day-offset index loads only the selected day (rebuilt on
 demand if missing). The report shows:
 
-- App totals for the selected date, ranked by dwell time
-- A compact 24-hour ribbon (consecutive same-app stays merged)
+- App totals for the selected date, ranked by dwell time (lock screen and
+  Start menu / Search overlays are recorded but omitted from the headline
+  total, shares, and app ranking)
+- A compact 24-hour ribbon (consecutive same-app stays merged; lock screen and
+  Start menu sit close to the current report background)
 - A scrollable timeline of each recorded switch
 
-`‹` / `›` change date; `Today` jumps back. Scroll the colour bar to zoom, drag
-to pan, double-click to reset. This is an early, local report — not an AI
-summary.
+App chips use the same accent swatches as Appearance. The window chrome follows
+the current badge theme. `‹` / `›` change date; `Today` jumps back. Scroll the
+colour bar to zoom, drag to pan, double-click to reset. This is an early, local
+report — not an AI summary.
 
 ### Hide and Close
 

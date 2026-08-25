@@ -11,27 +11,35 @@ from .dwell_report import (
     DaySlice,
     aggregate_by_app,
     app_colour,
+    counted_duration_ms,
     clamp_view,
     day_range,
     format_clock,
     format_duration,
     format_percent,
     format_tick,
+    is_idle_slice,
     merge_adjacent_by_app,
     pan_view,
+    slice_colour,
     slices_for_day,
     slices_in_range,
     tick_times,
     zoom_view,
 )
+from .theme import (
+    APP_COLOURS,
+    DEFAULT_BACKGROUND,
+    DEFAULT_BORDER,
+    DEFAULT_LIST_BACKGROUND,
+    DEFAULT_TEXT,
+    idle_fill,
+    blend_hex,
+    is_hex_color,
+    is_transparent,
+    paint_color,
+)
 
-BG = "#15181e"
-PANEL = "#1e232c"
-TEXT = "#f3f5f7"
-MUTED = "#9aa3b2"
-LINE = "#323844"
-TRACK = "#12151a"
-ACCENT = "#8fc0ff"
 WINDOW_WIDTH = 580
 WINDOW_HEIGHT = 680
 APP_ROW = 46
@@ -42,7 +50,7 @@ RIBBON_HEIGHT = 72
 
 
 class AnalysisWindow:
-    """Dark, scrollable day report: app totals plus an action timeline."""
+    """Scrollable day report: app totals plus an action timeline."""
 
     def __init__(
         self,
@@ -58,37 +66,50 @@ class AnalysisWindow:
         self.view_end: datetime | None = None
         self._rendered_day: date | None = None
         self._drag_origin: tuple[int, datetime, datetime] | None = None
+        self._bg = DEFAULT_BACKGROUND
+        self._panel = DEFAULT_LIST_BACKGROUND
+        self._text = DEFAULT_TEXT
+        self._muted = blend_hex(DEFAULT_BACKGROUND, DEFAULT_TEXT, 0.68)
+        self._line = DEFAULT_BORDER
+        self._track = blend_hex(DEFAULT_LIST_BACKGROUND, DEFAULT_TEXT, 0.08)
+        self._accent = APP_COLOURS[0]
+        self._lock = idle_fill(DEFAULT_LIST_BACKGROUND, DEFAULT_TEXT)
+        self._nav_buttons: list[tk.Button] = []
+        self._section_labels: list[tk.Label] = []
+        self._scrollbars: list[tk.Scrollbar] = []
 
         self.window = tk.Toplevel(parent)
         self.window.withdraw()
         self.window.title("Context Badge — Time")
-        self.window.configure(bg=BG)
+        self.window.configure(bg=self._bg)
         self.window.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}")
         self.window.minsize(500, 560)
         self.window.protocol("WM_DELETE_WINDOW", self.hide)
         self.window.bind("<Escape>", lambda _event: self.hide())
 
-        header = tk.Frame(self.window, bg=BG)
-        header.pack(fill="x", padx=18, pady=(16, 4))
-        self._nav_button(header, "‹", self._prev_day).pack(side="left")
-        self._nav_button(header, "›", self._next_day).pack(side="left", padx=(6, 0))
+        self._header = tk.Frame(self.window, bg=self._bg)
+        self._header.pack(fill="x", padx=18, pady=(16, 4))
+        self._nav_button(self._header, "‹", self._prev_day).pack(side="left")
+        self._nav_button(self._header, "›", self._next_day).pack(
+            side="left", padx=(6, 0)
+        )
         self.date_label = tk.Label(
-            header,
+            self._header,
             text="",
-            bg=BG,
-            fg=TEXT,
+            bg=self._bg,
+            fg=self._text,
             font=("Segoe UI Semibold", 14),
         )
         self.date_label.pack(side="left", padx=(14, 0))
-        self._nav_button(header, "Today", self._goto_today, width=7).pack(
+        self._nav_button(self._header, "Today", self._goto_today, width=7).pack(
             side="right"
         )
 
         self.total_label = tk.Label(
             self.window,
             text="0s",
-            bg=BG,
-            fg=TEXT,
+            bg=self._bg,
+            fg=self._text,
             font=("Segoe UI Semibold", 28),
             anchor="w",
         )
@@ -96,8 +117,8 @@ class AnalysisWindow:
         self.summary = tk.Label(
             self.window,
             text="",
-            bg=BG,
-            fg=MUTED,
+            bg=self._bg,
+            fg=self._muted,
             font=("Segoe UI", 10),
             anchor="w",
         )
@@ -111,9 +132,9 @@ class AnalysisWindow:
         self.ribbon = tk.Canvas(
             self.window,
             height=RIBBON_HEIGHT,
-            bg=PANEL,
+            bg=self._panel,
             highlightthickness=1,
-            highlightbackground=LINE,
+            highlightbackground=self._line,
         )
         self.ribbon.pack(fill="x", padx=14, pady=(4, 12))
         self.ribbon.bind("<Configure>", lambda _event: self._draw_ribbon())
@@ -130,15 +151,79 @@ class AnalysisWindow:
         self._bind_wheel(self.apps)
         self._bind_wheel(self.timeline)
 
+    def apply_theme(
+        self,
+        *,
+        background: str,
+        list_background: str,
+        text: str,
+        muted: str,
+        border: str,
+    ) -> None:
+        page = paint_color(background, DEFAULT_BACKGROUND)
+        panel = paint_color(list_background, DEFAULT_LIST_BACKGROUND)
+        if is_transparent(background):
+            page = (
+                panel if not is_transparent(list_background) else DEFAULT_BACKGROUND
+            )
+        if is_transparent(list_background):
+            panel = page
+        self._bg = page
+        self._panel = panel
+        self._text = paint_color(text, DEFAULT_TEXT)
+        if is_hex_color(str(muted or "").strip()):
+            self._muted = str(muted).strip()
+        else:
+            self._muted = blend_hex(page, self._text, 0.68)
+        if is_transparent(border) or not is_hex_color(str(border or "").strip()):
+            self._line = blend_hex(panel, self._text, 0.28)
+        else:
+            self._line = str(border).strip()
+        self._track = blend_hex(panel, self._text, 0.08)
+        self._accent = APP_COLOURS[0]
+        self._lock = idle_fill(panel, self._text)
+        self._paint_chrome()
+        if self._rendered_day is not None:
+            self._apply_view()
+
+    def _paint_chrome(self) -> None:
+        self.window.configure(bg=self._bg)
+        self._header.configure(bg=self._bg)
+        self.date_label.configure(bg=self._bg, fg=self._text)
+        self.total_label.configure(bg=self._bg, fg=self._text)
+        self.summary.configure(bg=self._bg, fg=self._muted)
+        for label in self._section_labels:
+            label.configure(bg=self._bg, fg=self._muted)
+        for button in self._nav_buttons:
+            button.configure(
+                bg=self._panel,
+                fg=self._text,
+                activebackground=self._line,
+                activeforeground=self._text,
+            )
+        self.apps_holder.configure(bg=self._bg)
+        self.timeline_holder.configure(bg=self._bg)
+        self.apps.configure(bg=self._panel, highlightbackground=self._line)
+        self.timeline.configure(bg=self._panel, highlightbackground=self._line)
+        self.ribbon.configure(bg=self._panel, highlightbackground=self._line)
+        for scroll in self._scrollbars:
+            scroll.configure(
+                bg=self._panel,
+                troughcolor=self._bg,
+                activebackground=self._accent,
+            )
+
     def _section(self, title: str) -> tk.Label:
-        return tk.Label(
+        label = tk.Label(
             self.window,
             text=title.upper(),
-            bg=BG,
-            fg=MUTED,
+            bg=self._bg,
+            fg=self._muted,
             font=("Segoe UI Semibold", 8),
             anchor="w",
         )
+        self._section_labels.append(label)
+        return label
 
     def _nav_button(
         self,
@@ -147,15 +232,15 @@ class AnalysisWindow:
         command: Callable[[], None],
         width: int = 3,
     ) -> tk.Button:
-        return tk.Button(
+        button = tk.Button(
             parent,
             text=text,
             command=command,
             width=width,
-            bg=PANEL,
-            fg=TEXT,
-            activebackground=LINE,
-            activeforeground=TEXT,
+            bg=self._panel,
+            fg=self._text,
+            activebackground=self._line,
+            activeforeground=self._text,
             relief="flat",
             bd=0,
             highlightthickness=0,
@@ -164,24 +249,27 @@ class AnalysisWindow:
             padx=8,
             pady=4,
         )
+        self._nav_buttons.append(button)
+        return button
 
     def _scrolled_canvas(self, height: int) -> tuple[tk.Frame, tk.Canvas]:
-        holder = tk.Frame(self.window, bg=BG)
+        holder = tk.Frame(self.window, bg=self._bg)
         canvas = tk.Canvas(
             holder,
             height=height,
-            bg=PANEL,
+            bg=self._panel,
             highlightthickness=1,
-            highlightbackground=LINE,
+            highlightbackground=self._line,
         )
         scroll = tk.Scrollbar(
             holder,
             orient="vertical",
             command=canvas.yview,
-            bg=PANEL,
-            troughcolor=BG,
-            activebackground=ACCENT,
+            bg=self._panel,
+            troughcolor=self._bg,
+            activebackground=self._accent,
         )
+        self._scrollbars.append(scroll)
         canvas.configure(yscrollcommand=scroll.set)
         canvas.pack(side="left", fill="both", expand=True)
         scroll.pack(side="right", fill="y")
@@ -211,7 +299,7 @@ class AnalysisWindow:
         self.window.withdraw()
 
     def prompt_text(self) -> str:
-        total_ms = sum(item.duration_ms for item in self.day_slices)
+        total_ms = counted_duration_ms(self.day_slices)
         day = self.day.strftime("%d %b")
         if not self.day_slices:
             return f"{day} · no time yet"
@@ -307,26 +395,33 @@ class AnalysisWindow:
         self.view_start, self.view_end = view_start, view_end
         self.slices = slices_in_range(self.day_slices, view_start, view_end)
         self.totals = aggregate_by_app(self.slices)
-        total_ms = sum(item.duration_ms for item in self.slices)
+        total_ms = counted_duration_ms(self.slices)
+        idle_ms = sum(
+            item.duration_ms for item in self.slices if is_idle_slice(item)
+        )
         self.total_label.configure(
-            text=format_duration(total_ms) if self.slices else "0s"
+            text=format_duration(total_ms) if total_ms else "0s"
         )
         zoomed = self._is_zoomed()
         range_text = f"{format_clock(view_start)}–{format_clock(view_end)}"
+        idle_note = (
+            f"  ·  idle {format_duration(idle_ms)} omitted" if idle_ms else ""
+        )
         if not self.day_slices:
             self.summary.configure(text="No recorded time this day")
         elif zoomed:
             self.summary.configure(
                 text=(
                     f"{range_text}  ·  {len(self.totals)} apps  ·  "
-                    f"{len(self.slices)} switches  ·  drag to pan, double-click to reset"
+                    f"{len(self.slices)} switches{idle_note}  ·  "
+                    "drag to pan, double-click to reset"
                 )
             )
         else:
             self.summary.configure(
                 text=(
-                    f"{len(self.totals)} apps  ·  {len(self.slices)} switches  ·  "
-                    "scroll the colour bar to zoom"
+                    f"{len(self.totals)} apps  ·  {len(self.slices)} switches"
+                    f"{idle_note}  ·  scroll the colour bar to zoom"
                 )
             )
         self._draw_apps()
@@ -350,13 +445,16 @@ class AnalysisWindow:
         if width <= 1:
             width = WINDOW_WIDTH - 44
         if not self.totals:
+            empty = "Nothing to summarise yet."
+            if any(is_idle_slice(item) for item in self.slices):
+                empty = "Lock screen and Start menu time is omitted from totals."
             canvas.create_text(
                 16,
                 20,
                 anchor="w",
-                fill=MUTED,
+                fill=self._muted,
                 font=("Segoe UI", 10),
-                text="Nothing to summarise yet.",
+                text=empty,
             )
             canvas.configure(scrollregion=(0, 0, width, APP_VIEW))
             return
@@ -373,7 +471,7 @@ class AnalysisWindow:
                 34,
                 top + 8,
                 anchor="w",
-                fill=TEXT,
+                fill=self._text,
                 font=("Segoe UI Semibold", 10),
                 text=_ellipsis(item.app, 28),
             )
@@ -381,9 +479,12 @@ class AnalysisWindow:
                 width - 16,
                 top + 8,
                 anchor="e",
-                fill=MUTED,
+                fill=self._muted,
                 font=("Segoe UI", 9),
-                text=f"{format_percent(item.duration_ms, total_ms)}  {format_duration(item.duration_ms)}",
+                text=(
+                    f"{format_percent(item.duration_ms, total_ms)}  "
+                    f"{format_duration(item.duration_ms)}"
+                ),
             )
             filled = int(bar_span * item.duration_ms / peak)
             canvas.create_rectangle(
@@ -391,7 +492,7 @@ class AnalysisWindow:
                 top + 22,
                 bar_right,
                 top + 30,
-                fill=TRACK,
+                fill=self._track,
                 outline="",
             )
             canvas.create_rectangle(
@@ -418,7 +519,9 @@ class AnalysisWindow:
         right = width - pad_x
         top = pad_top
         bottom = height - pad_bottom
-        canvas.create_rectangle(left, top, right, bottom, fill=TRACK, outline=LINE)
+        canvas.create_rectangle(
+            left, top, right, bottom, fill=self._track, outline=self._line
+        )
         view_start, view_end = self._view_bounds()
         span = view_end - view_start
         span_s = span.total_seconds() or 1
@@ -433,21 +536,23 @@ class AnalysisWindow:
                 top + 1,
                 x2,
                 bottom - 1,
-                fill=app_colour(item.app),
+                fill=slice_colour(item, lock_colour=self._lock),
                 outline="",
             )
         if self.day == date.today():
             now = datetime.now().astimezone()
             if view_start <= now <= view_end:
                 x_now = left + usable * ((now - view_start).total_seconds() / span_s)
-                canvas.create_line(x_now, top, x_now, bottom, fill="#ffffff", width=1)
+                canvas.create_line(
+                    x_now, top, x_now, bottom, fill=self._text, width=1
+                )
         for moment in tick_times(view_start, view_end):
             x = left + usable * ((moment - view_start).total_seconds() / span_s)
             canvas.create_text(
                 x,
                 height - 10,
                 text=format_tick(moment, span),
-                fill=MUTED,
+                fill=self._muted,
                 font=("Segoe UI", 8),
             )
 
@@ -462,7 +567,7 @@ class AnalysisWindow:
                 16,
                 20,
                 anchor="w",
-                fill=MUTED,
+                fill=self._muted,
                 font=("Segoe UI", 10),
                 text="No switches recorded for this date.",
             )
@@ -473,15 +578,15 @@ class AnalysisWindow:
         for index, item in enumerate(self.slices):
             top = index * TIMELINE_ROW
             if index:
-                canvas.create_line(14, top, width - 14, top, fill=LINE)
-            colour = app_colour(item.app)
+                canvas.create_line(14, top, width - 14, top, fill=self._line)
+            colour = slice_colour(item, lock_colour=self._lock)
             canvas.create_oval(16, top + 12, 26, top + 22, fill=colour, outline="")
             clock = f"{format_clock(item.started_at)}  –  {format_clock(item.ended_at)}"
             canvas.create_text(
                 36,
                 top + 8,
                 anchor="nw",
-                fill=MUTED,
+                fill=self._muted,
                 font=("Segoe UI", 9),
                 text=clock,
             )
@@ -489,7 +594,7 @@ class AnalysisWindow:
                 width - 16,
                 top + 8,
                 anchor="ne",
-                fill=ACCENT,
+                fill=self._accent,
                 font=("Segoe UI Semibold", 10),
                 text=format_duration(item.duration_ms),
             )
@@ -497,7 +602,7 @@ class AnalysisWindow:
                 36,
                 top + 24,
                 anchor="nw",
-                fill=TEXT,
+                fill=self._text,
                 font=("Segoe UI Semibold", 10),
                 text=_ellipsis(item.app, 28),
             )
@@ -505,7 +610,7 @@ class AnalysisWindow:
                 36,
                 top + 40,
                 anchor="nw",
-                fill=MUTED,
+                fill=self._muted,
                 font=("Segoe UI", 9),
                 text=_ellipsis(item.surface, 56),
             )

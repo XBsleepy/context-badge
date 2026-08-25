@@ -108,6 +108,13 @@ FRIENDLY_APPS = {
     "obsidian.exe": "Obsidian",
     "cursor.exe": "Cursor",
     "wechat.exe": "WeChat",
+    "lockapp.exe": "Lock screen",
+    "logonui.exe": "Lock screen",
+    "startmenuexperiencehost.exe": "Start menu",
+    "searchhost.exe": "Search",
+    "searchapp.exe": "Search",
+    "shellexperiencehost.exe": "Windows shell",
+    "textinputhost.exe": "Text input",
 }
 
 

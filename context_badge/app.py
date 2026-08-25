@@ -389,6 +389,13 @@ class ContextBadge:
         )
         atexit.register(self.dwell.close)
         self.analysis = AnalysisWindow(self.root, self._dwell_records)
+        self.analysis.apply_theme(
+            background=self.background_color,
+            list_background=self.list_background_color,
+            text=self.text_color,
+            muted=self.secondary_text_color,
+            border=self.border_color,
+        )
         self.analysis.window.update_idletasks()
         analysis_tk = self.analysis.window.winfo_id()
         self.analysis_hwnd = user32.GetParent(analysis_tk) or analysis_tk
@@ -1799,6 +1806,14 @@ class ContextBadge:
         if hasattr(self, "list_bar"):
             self.list_bar.apply_theme(
                 background=self.list_background_color,
+                text=self.text_color,
+                muted=self.secondary_text_color,
+                border=self.border_color,
+            )
+        if hasattr(self, "analysis"):
+            self.analysis.apply_theme(
+                background=self.background_color,
+                list_background=self.list_background_color,
                 text=self.text_color,
                 muted=self.secondary_text_color,
                 border=self.border_color,

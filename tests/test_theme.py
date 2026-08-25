@@ -1,17 +1,22 @@
 import unittest
 
 from context_badge.theme import (
+    APP_COLOURS,
+    COLOUR_PALETTE,
     COLOUR_THEMES,
     DEFAULT_BACKGROUND,
     DEFAULT_BORDER,
     DEFAULT_CORNER_RADIUS,
     DEFAULT_LIST_BACKGROUND,
     DEFAULT_TEXT,
+    IDLE_BLEND,
+    LOCK_COLOUR,
     RADIUS_CHOICES,
     TRANSPARENT,
     TRANSPARENT_KEY,
     blend_hex,
     bounded_int,
+    idle_fill,
     is_hex_color,
     is_transparent,
     matching_theme_id,
@@ -79,6 +84,19 @@ class ThemeTests(unittest.TestCase):
         self.assertEqual(len(ids), len(set(ids)))
         self.assertIn("ink", ids)
         self.assertIsNone(theme_by_id("missing"))
+
+    def test_app_and_lock_colours_are_palette_swatches(self) -> None:
+        self.assertTrue(set(APP_COLOURS).issubset(COLOUR_PALETTE))
+        self.assertEqual(LOCK_COLOUR, "#94a3b8")
+        self.assertIn(LOCK_COLOUR, COLOUR_PALETTE)
+        self.assertNotIn(LOCK_COLOUR, APP_COLOURS)
+
+    def test_idle_fill_sits_near_the_background(self) -> None:
+        ink = idle_fill("#16181d", "#f4f1ea")
+        parchment = idle_fill("#f3ead9", "#3d2f1f")
+        self.assertEqual(ink, blend_hex("#16181d", "#f4f1ea", IDLE_BLEND))
+        self.assertEqual(parchment, blend_hex("#f3ead9", "#3d2f1f", IDLE_BLEND))
+        self.assertNotEqual(ink, LOCK_COLOUR)
 
 
 class MenuPopupModuleTests(unittest.TestCase):

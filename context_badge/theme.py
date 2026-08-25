@@ -33,6 +33,20 @@ COLOUR_PALETTE = (
     "#0ea5e9",
     "#059669",
 )
+# Vivid swatches from COLOUR_PALETTE, used by Time analysis app chips.
+APP_COLOURS = (
+    "#2563eb",
+    "#059669",
+    "#facc15",
+    "#f97316",
+    "#ef4444",
+    "#ec4899",
+    "#8b5cf6",
+    "#0ea5e9",
+)
+LOCK_COLOUR = "#94a3b8"
+# Quiet mix of page + type; omitted chrome sits near the current background.
+IDLE_BLEND = 0.18
 
 
 @dataclass(frozen=True)
@@ -92,6 +106,11 @@ def blend_hex(background: str, foreground: str, amount: float) -> str:
         for bg, fg in zip(background_rgb, foreground_rgb)
     )
     return "#" + "".join(f"{channel:02x}" for channel in mixed)
+
+
+def idle_fill(background: str, text: str) -> str:
+    """Return a muted fill close to ``background``, just enough to mark idle time."""
+    return blend_hex(background, text, IDLE_BLEND)
 
 
 def bounded_int(value: object, default: int, minimum: int, maximum: int) -> int:

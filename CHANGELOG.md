@@ -34,6 +34,7 @@ All notable changes to Context Badge are documented here.
 - Rest intervals are stored as `rest_timer_minutes` with optional `rest_timer_custom_minutes` slots (older `rest_timer_seconds` migrates on load). Selecting a custom slot now keeps that pill lit.
 - The rest menu is named **Break**. Hide-badge leaves the pet draggable.
 - Dragging the badge or pet can cross monitors; the pet is moved with SetWindowPos so the layered sprite can leave the current display.
+- Time analysis omits lock-screen and Start menu / Search overlay time from the headline total and app ranking. Those stays sit on the ribbon/timeline in a quiet fill close to the current background. Report chrome and app chips follow the badge colour system.
 
 ## [0.2.0] - 2026-08-16
 
